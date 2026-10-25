@@ -107,7 +107,8 @@ function aviso(){alert("Funcionalidade em desenvolvimento.")}
 async function cadastrarImovel() {
   const nome = prompt("Digite o nome do imóvel:");
   if (!nome || !nome.trim()) return;
-
+const endereco = prompt("Digite o endereço do imóvel:");
+if (!endereco || !endereco.trim()) return;
   const db = supabase.createClient(
     SUPABASE_URL,
     SUPABASE_PUBLISHABLE_KEY
@@ -123,10 +124,11 @@ async function cadastrarImovel() {
 
   const { error } = await db
     .from("properties")
-    .insert({
-      name: nome.trim(),
-      owner_id: user.id
-    });
+  .insert({
+  name: nome.trim(),
+  address: endereco.trim(),
+  owner_id: user.id
+});
 
   if (error) {
     alert("Erro ao cadastrar: " + error.message);
