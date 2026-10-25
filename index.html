@@ -305,11 +305,23 @@ async function carregarInquilinos() {
       return;
     }
 
-    data.forEach(inquilino => {
-      const item = document.createElement("p");
-      item.textContent = inquilino.full_name;
-      lista.appendChild(item);
-    });
+   data.forEach(inquilino => {
+  const item = document.createElement("div");
+
+  const nome = document.createElement("span");
+  nome.textContent = inquilino.full_name + " ";
+
+  const editar = document.createElement("button");
+  editar.textContent = "Editar";
+  editar.onclick = () => editarInquilino(inquilino);
+
+  const excluir = document.createElement("button");
+  excluir.textContent = "Excluir";
+  excluir.onclick = () => excluirInquilino(inquilino);
+
+  item.append(nome, editar, excluir);
+  lista.appendChild(item);
+});
 
   } catch (erro) {
     lista.textContent = "Erro: " + erro.message;
