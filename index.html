@@ -327,6 +327,54 @@ async function carregarInquilinos() {
     lista.textContent = "Erro: " + erro.message;
   }
 }
+async function editarInquilino(inquilino) {
+  const novoNome = prompt(
+    "Novo nome do inquilino:",
+    inquilino.full_name
+  );
+
+  if (novoNome === null) return;
+
+  if (!novoNome.trim()) {
+    alert("Digite um nome válido.");
+    return;
+  }
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .update({ full_name: novoNome.trim() })
+      .eq("id", inquilino.id)
+      .eq("owner_id", user.id)
+      .select("id");
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      alert("Inquilino não encontrado ou sem permissão.");
+      return;
+    }
+
+    alert("Inquilino atualizado com sucesso!");
+    await carregarInquilinos();
+
+  } catch (erro) {
+    alert("Erro ao editar: " + erro.message);
+  }
+}
 </script>
 </body>
 </html>
