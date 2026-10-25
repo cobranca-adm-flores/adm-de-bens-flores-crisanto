@@ -20,6 +20,7 @@ footer{text-align:center;margin:30px;color:#666}
 <header><h1>ADM de Bens Flores Crisanto</h1><p>Administração de imóveis e aluguéis</p></header>
 <main>
 <h2>Painel administrativo</h2>
+ <button onclick="loginAdministrador()">Entrar como administrador</button>
 <div class="grid">
 <section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button></section>
 <section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="aviso()">Acessar</button></section>
@@ -29,6 +30,30 @@ footer{text-align:center;margin:30px;color:#666}
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
 <script>
+ async function loginAdministrador() {
+  const email = prompt("Digite seu e-mail:");
+  if (!email) return;
+
+  const senha = prompt("Digite sua senha:");
+  if (!senha) return;
+
+  const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  const { error } = await db.auth.signInWithPassword({
+    email: email,
+    password: senha
+  });
+
+  if (error) {
+    alert("Erro no login: " + error.message);
+    return;
+  }
+
+  alert("Login realizado com sucesso!");
+}
 const SUPABASE_URL = "https://mstzwpfiijzqagqjifmf.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ";
  async function carregarImoveis() {
