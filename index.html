@@ -269,6 +269,52 @@ async function cadastrarInquilino() {
     alert("Erro: " + erro.message);
   }
 }
+async function carregarInquilinos() {
+  const lista = document.getElementById("listaInquilinos");
+
+  if (!lista) return;
+
+  lista.textContent = "Carregando inquilinos...";
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      lista.textContent = "Entre como administrador primeiro.";
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .select("id, full_name")
+      .eq("owner_id", user.id)
+      .order("full_name");
+
+    if (error) throw error;
+
+    lista.replaceChildren();
+
+    if (!data || data.length === 0) {
+      lista.textContent = "Nenhum inquilino encontrado.";
+      return;
+    }
+
+    data.forEach(inquilino => {
+      const item = document.createElement("p");
+      item.textContent = inquilino.full_name;
+      lista.appendChild(item);
+    });
+
+  } catch (erro) {
+    lista.textContent = "Erro: " + erro.message;
+  }
+}
 </script>
 </body>
 </html>
