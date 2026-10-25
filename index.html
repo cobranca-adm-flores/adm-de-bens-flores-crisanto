@@ -20,7 +20,7 @@ footer{text-align:center;margin:30px;color:#666}
 <main>
 <h2>Painel administrativo</h2>
 <div class="grid">
-<section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="abrirImoveis()">Acessar</button></section>
+<section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button></section>
 <section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="aviso()">Acessar</button></section>
@@ -28,6 +28,9 @@ footer{text-align:center;margin:30px;color:#666}
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
 <script>
+ async function carregarImoveis() {
+  alert("Preparando consulta de imóveis no Supabase.");
+}
  const SUPABASE_URL = "";
 const SUPABASE_PUBLISHABLE_KEY = ""; 
   function abrirImoveis() {
