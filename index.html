@@ -102,12 +102,39 @@ data.forEach(imovel => {
   alert("Imóvel informado: " + nome + "\nCadastro de teste. Ainda não foi salvo.");
 }
 function aviso(){alert("Funcionalidade em desenvolvimento.")}
+
  
 async function cadastrarImovel() {
   const nome = prompt("Digite o nome do imóvel:");
   if (!nome || !nome.trim()) return;
 
-  alert("Próxima etapa: salvar o imóvel no banco de dados.");
+  const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  const { data: { user }, error: authError } =
+    await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+    .insert({
+      name: nome.trim(),
+      owner_id: user.id
+    });
+
+  if (error) {
+    alert("Erro ao cadastrar: " + error.message);
+    return;
+  }
+
+  alert("Imóvel cadastrado com sucesso!");
+  await carregarImoveis();
 }
 
 </script>
