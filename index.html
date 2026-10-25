@@ -23,6 +23,7 @@ footer{text-align:center;margin:30px;color:#666}
  <button onclick="loginAdministrador()">Entrar como administrador</button>
 <div class="grid">
 <section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button></section>
+ <div id="listaImoveis"></div>
 <section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="aviso()">Acessar</button></section>
@@ -78,9 +79,14 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ
       return;
     }
 
-    alert("Imóveis encontrados:\n" +
-      data.map(imovel => imovel.name).join("\n")
-    );
+ const lista = document.getElementById("listaImoveis");
+lista.replaceChildren();
+
+data.forEach(imovel => {
+  const item = document.createElement("p");
+  item.textContent = imovel.name;
+  lista.appendChild(item);
+});
   } catch (erro) {
     alert("Erro: " + erro.message);
   }
