@@ -84,9 +84,21 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ
 lista.replaceChildren();
 
 data.forEach(imovel => {
-  const item = document.createElement("p");
-  item.textContent = imovel.name;
-  lista.appendChild(item);
+const item = document.createElement("div");
+
+const nome = document.createElement("span");
+nome.textContent = imovel.name + " ";
+
+const editar = document.createElement("button");
+editar.textContent = "Editar";
+editar.onclick = () => editarImovel(imovel);
+
+const excluir = document.createElement("button");
+excluir.textContent = "Excluir";
+excluir.onclick = () => excluirImovel(imovel);
+
+item.append(nome, editar, excluir);
+lista.appendChild(item);
 });
   } catch (erro) {
     alert("Erro: " + erro.message);
@@ -138,7 +150,76 @@ if (!endereco || !endereco.trim()) return;
   alert("Imóvel cadastrado com sucesso!");
   await carregarImoveis();
 }
+async function editarImovel(imovel) {
+  const novoNome = prompt("Novo nome do imóvel:", imovel.name);
+  if (novoNome === null || !novoNome.trim()) return;
 
+  const novoEndereco = prompt("Novo endereço:", imovel.address || "");
+  if (novoEndereco === null || !novoEndereco.trim()) return;
+
+  const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  const { data: { user }, error: authError } = await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+    .update({
+      name: novoNome.trim(),
+      address: novoEndereco.trim()
+    })
+    .eq("id", imovel.id)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    alert("Erro ao editar: " + error.message);
+    return;
+  }
+
+  alert("Imóvel atualizado com sucesso!");
+  await carregarImoveis();
+async function excluirImovel(imovel) {
+  const confirmar = confirm(
+    "Tem certeza que deseja excluir o imóvel " +
+    imovel.name + "?"
+  );
+
+  if (!confirmar) return;
+
+  const db = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  const { data: { user }, error: authError } =
+    await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+    .delete()
+    .eq("id", imovel.id)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    alert("Erro ao excluir: " + error.message);
+    return;
+  }
+
+  alert("Solicitação de exclusão concluída.");
+  await carregarImoveis();
+}
 </script>
 </body>
 </html>
