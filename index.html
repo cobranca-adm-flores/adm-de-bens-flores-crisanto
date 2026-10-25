@@ -24,6 +24,7 @@ footer{text-align:center;margin:30px;color:#666}
 <div class="grid">
 <section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button></section>
  <div id="listaImoveis"></div>
+<button onclick="cadastrarImovel()">+ Cadastrar imóvel</button>
 <section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="aviso()">Acessar</button></section>
 <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="aviso()">Acessar</button></section>
@@ -101,6 +102,14 @@ data.forEach(imovel => {
   alert("Imóvel informado: " + nome + "\nCadastro de teste. Ainda não foi salvo.");
 }
 function aviso(){alert("Funcionalidade em desenvolvimento.")}
+ 
+async function cadastrarImovel() {
+  const nome = prompt("Digite o nome do imóvel:");
+  if (!nome || !nome.trim()) return;
+
+  alert("Próxima etapa: salvar o imóvel no banco de dados.");
+}
+
 </script>
 </body>
 </html>
