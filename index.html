@@ -39,7 +39,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ
     );
 
     const { data, error } = await db
-      .from("Propriedades")
+      .from("properties")
       .select("nome")
       .limit(20);
 
