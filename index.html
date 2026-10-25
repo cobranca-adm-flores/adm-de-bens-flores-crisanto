@@ -54,7 +54,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ
     }
 
     alert("Imóveis encontrados:\n" +
-      data.map(imovel => imovel.nome).join("\n")
+      data.map(imovel => imovel.name).join("\n")
     );
   } catch (erro) {
     alert("Erro: " + erro.message);
