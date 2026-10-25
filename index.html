@@ -221,8 +221,49 @@ async function editarImovel(imovel) {
   alert("Solicitação de exclusão concluída.");
   await carregarImoveis();
 }
+
 async function cadastrarInquilino() {
-  alert("Cadastro de inquilinos em preparação.");
+  const nome = prompt("Nome completo do inquilino:");
+  if (!nome || !nome.trim()) return;
+
+  const telefone = prompt("Telefone do inquilino:");
+  if (telefone === null) return;
+
+  const cpf = prompt("CPF do inquilino:");
+  if (cpf === null) return;
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { error } = await db
+      .from("tenants")
+      .insert({
+        full_name: nome.trim(),
+        phone: telefone.trim(),
+        document_ref: cpf.trim(),
+        owner_id: user.id
+      });
+
+    if (error) {
+      alert("Erro ao cadastrar: " + error.message);
+      return;
+    }
+
+    alert("Inquilino cadastrado com sucesso!");
+  } catch (erro) {
+    alert("Erro: " + erro.message);
+  }
 }
 </script>
 </body>
