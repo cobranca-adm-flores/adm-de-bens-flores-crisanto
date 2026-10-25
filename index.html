@@ -29,8 +29,34 @@ footer{text-align:center;margin:30px;color:#666}
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
 <script>
- async function carregarImoveis() {
-  alert("Preparando consulta de imóveis no Supabase.");
+async function carregarImoveis() {
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data, error } = await db
+      .from("Propriedades")
+      .select("nome")
+      .limit(20);
+
+    if (error) {
+      alert("Erro na consulta: " + error.message);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      alert("Nenhum imóvel encontrado.");
+      return;
+    }
+
+    alert("Imóveis encontrados:\n" +
+      data.map(imovel => imovel.nome).join("\n")
+    );
+  } catch (erro) {
+    alert("Erro: " + erro.message);
+  }
 }
 const SUPABASE_URL = "https://mstzwpfiijzqagqjifmf.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "https://mstzwpfiijzqagqjifmf.supabase.co/rest/v1/"; 
