@@ -375,6 +375,49 @@ async function editarInquilino(inquilino) {
     alert("Erro ao editar: " + erro.message);
   }
 }
+async function excluirInquilino(inquilino) {
+  const confirmar = confirm(
+    "Tem certeza que deseja excluir o inquilino " +
+    inquilino.full_name + "?"
+  );
+
+  if (!confirmar) return;
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .delete()
+      .eq("id", inquilino.id)
+      .eq("owner_id", user.id)
+      .select("id");
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      alert("Inquilino não excluído ou sem permissão.");
+      return;
+    }
+
+    alert("Inquilino excluído com sucesso!");
+    await carregarInquilinos();
+
+  } catch (erro) {
+    alert("Erro ao excluir: " + erro.message);
+  }
+}
 </script>
 </body>
 </html>
