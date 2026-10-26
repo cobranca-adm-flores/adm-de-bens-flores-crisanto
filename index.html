@@ -84,7 +84,7 @@ if (erroFatores) {
   return;
 }
 
-const fator = factors.all.find(f => f.factor_type === "totp");
+const fator = fatores.all.find(f => f.factor_type === "totp");
 
 if (!fator) {
   const { data: cadastro, error: erroCadastro } =
