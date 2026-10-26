@@ -84,7 +84,7 @@ if (erroFatores) {
   return;
 }
 
-const fator = fatores.totp.find(f => f.status === "verified" || f.status === "unverified");
+const fator = factors.all.find(f => f.factor_type === "totp");
 
 if (!fator) {
   const { data: cadastro, error: erroCadastro } =
