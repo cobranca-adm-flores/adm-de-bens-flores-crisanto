@@ -46,7 +46,7 @@ footer{text-align:center;margin:30px;color:#666}
   Ver inquilinos cadastrados
 </button></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button><div id="listaPagamentos"></div></section>
-
+<button onclick="registrarPagamento()">+ Registrar pagamento</button>
  <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
 <div id="resumoFinanceiro" style="margin-top:20px;"></div>
 </section>
@@ -561,6 +561,66 @@ document.getElementById("resumoFinanceiro").innerHTML = `
   }
 }
 
+
+async function registrarPagamento() {
+  try {
+    const descricao = prompt("Digite a descrição da cobrança que foi paga:");
+    if (!descricao) return;
+
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: erroUsuario } = await db.auth.getUser();
+    if (erroUsuario || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data: cobrancas, error } = await db
+      .from("rent_charges")
+      .select("id, description, amount, status")
+      .eq("owner_id", user.id)
+      .ilike("description", "%" + descricao.trim() + "%");
+
+    if (error) throw error;
+
+    if (!cobrancas || cobrancas.length !== 1) {
+      alert("Encontradas " + (cobrancas?.length || 0) +
+        " cobranças. Digite uma descrição mais específica.");
+      return;
+    }
+
+    const cobranca = cobrancas[0];
+
+    if (cobranca.status === "paid") {
+      alert("Essa cobrança já está marcada como paga.");
+      return;
+    }
+
+    const confirmar = confirm(
+      "Confirmar recebimento de " + cobranca.description +
+      " no valor de R$ " + Number(cobranca.amount).toFixed(2) + "?"
+    );
+    if (!confirmar) return;
+
+    const { error: erroAtualizacao } = await db
+      .from("rent_charges")
+      .update({ status: "paid" })
+      .eq("id", cobranca.id)
+      .eq("owner_id", user.id);
+
+    if (erroAtualizacao) throw erroAtualizacao;
+
+    alert("Cobrança marcada como paga!");
+    await carregarPagamentos();
+    await carregarRelatorios();
+  } catch (erro) {
+    alert("Erro ao registrar pagamento: " + erro.message);
+  }
+}
+  
 </script>
 </body>
 </html>
