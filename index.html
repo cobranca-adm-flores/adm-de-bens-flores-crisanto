@@ -21,6 +21,13 @@ footer{text-align:center;margin:30px;color:#666}
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
+.grid > .card:has(#listaPagamentos) {
+  grid-column: 1 / -1;
+}
+
+#listaPagamentos {
+  padding: 15px 0;
+}
 </style>
  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
