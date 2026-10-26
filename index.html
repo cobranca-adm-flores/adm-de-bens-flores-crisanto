@@ -30,8 +30,9 @@ footer{text-align:center;margin:30px;color:#666}
 <button onclick="carregarInquilinos()">
   Ver inquilinos cadastrados
 </button>
-<section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="aviso()">Acessar</button></section>
-<section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="aviso()">Acessar</button></section>
+<section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button></section>
+<div id="listaPagamentos"></div>
+ <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="aviso()">Acessar</button></section>
 </div>
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
@@ -418,6 +419,71 @@ async function excluirInquilino(inquilino) {
     alert("Erro ao excluir: " + erro.message);
   }
 }
+
+async function carregarPagamentos() {
+  const lista = document.getElementById("listaPagamentos");
+  lista.textContent = "Carregando pagamentos...";
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      lista.textContent = "Entre como administrador primeiro.";
+      return;
+    }
+
+    const { data, error } = await db
+      .from("rent_charges")
+      .select("description, amount, due_date, status")
+      .eq("owner_id", user.id)
+      .order("due_date", { ascending: false });
+
+    if (error) throw error;
+
+    lista.replaceChildren();
+
+    if (!data || data.length === 0) {
+      lista.textContent = "Nenhuma cobrança encontrada.";
+      return;
+    }
+
+    const hoje = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/Sao_Paulo"
+    });
+
+    data.forEach(cobranca => {
+      const item = document.createElement("p");
+
+      const situacao = cobranca.status === "paid"
+        ? "PAGO"
+        : cobranca.due_date < hoje
+          ? "ATRASADO"
+          : "PENDENTE";
+
+      const valor = Number(cobranca.amount)
+        .toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL"
+        });
+
+      item.textContent =
+        cobranca.description + " - " +
+        valor + " - " + situacao;
+
+      lista.appendChild(item);
+    });
+
+  } catch (erro) {
+    lista.textContent = "Erro: " + erro.message;
+  }
+}
+
 </script>
 </body>
 </html>
