@@ -605,13 +605,25 @@ async function registrarPagamento() {
     );
     if (!confirmar) return;
 
-    const { error: erroAtualizacao } = await db
-      .from("rent_charges")
-      .update({ status: "paid" })
-      .eq("id", cobranca.id)
-      .eq("owner_id", user.id);
+try {
+  const { error: erroPagamento } = await db
+    .from("payments")
+    .insert({
+      owner_id: user.id,
+      charge_id: cobranca.id,
+      paid_at: new Date().toLocaleDateString("en-CA"),
+      amount: Number(cobranca.amount)
+    });
 
-    if (erroAtualizacao) throw erroAtualizacao;
+  if (erroPagamento) throw erroPagamento;
+
+  const { error: erroAtualizacao } = await db
+    .from("rent_charges")
+    .update({ status: "paid" })
+    .eq("id", cobranca.id)
+    .eq("owner_id", user.id);
+
+  if (erroAtualizacao) throw erroAtualizacao;
 
     alert("Cobrança marcada como paga!");
     await carregarPagamentos();
