@@ -499,6 +499,65 @@ async function carregarPagamentos() {
   }
 }
 
+
+async function carregarRelatorios() {
+  const lista = document.getElementById("listaPagamentos");
+  if (!lista) {
+    alert("Abra primeiro a seção de Pagamentos.");
+    return;
+  }
+
+  try {
+    const db = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data: usuario } = await db.auth.getUser();
+    if (!usuario.user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("rent_charges")
+      .select("amount,status,due_date")
+      .eq("owner_id", usuario.user.id);
+
+    if (error) throw error;
+
+    let recebido = 0;
+    let pendente = 0;
+    let atrasado = 0;
+    const hoje = new Date().toISOString().slice(0, 10);
+
+    for (const cobranca of data || []) {
+      const valor = Number(cobranca.amount) || 0;
+      if (cobranca.status === "paid") {
+        recebido += valor;
+      } else if (cobranca.due_date < hoje) {
+        atrasado += valor;
+      } else {
+        pendente += valor;
+      }
+    }
+
+    const moeda = valor => valor.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+    alert(
+      "RESUMO FINANCEIRO\n\n" +
+      "Recebido: " + moeda(recebido) + "\n" +
+      "Pendente: " + moeda(pendente) + "\n" +
+      "Atrasado: " + moeda(atrasado)
+    );
+  } catch (erro) {
+    alert("Erro no relatório: " + erro.message);
+  }
+}
+
 </script>
 </body>
 </html>
