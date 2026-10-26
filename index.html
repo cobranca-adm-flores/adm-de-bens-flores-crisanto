@@ -87,7 +87,53 @@ if (erroFatores) {
 const fator = fatores.totp.find(f => f.status === "verified");
 
 if (!fator) {
-  alert("Verificação em duas etapas não configurada.");
+  const { data: cadastro, error: erroCadastro } =
+    await db.auth.mfa.enroll({
+      factorType: "totp",
+      friendlyName: "ADM Flores Crisanto"
+    });
+
+  if (erroCadastro) {
+    alert("Erro ao cadastrar autenticador: " + erroCadastro.message);
+    return;
+  }
+
+  const janela = window.open("", "_blank");
+
+if (!janela) {
+  alert("Permita janelas pop-up no Safari para configurar o autenticador.");
+  return;
+}
+
+janela.document.title = "Configurar Google Authenticator";
+janela.document.body.innerHTML =
+  "<h2>ADM de Bens Flores Crisanto</h2>" +
+  "<p>Escaneie este QR Code com o Google Authenticator:</p>";
+
+const imagem = janela.document.createElement("img");
+imagem.src = cadastro.totp.qr_code;
+imagem.style.width = "250px";
+janela.document.body.appendChild(imagem);
+
+const codigoInicial = prompt(
+  "Depois de escanear, digite o código de 6 dígitos:"
+);
+
+if (!codigoInicial) return;
+
+const { error: erroConfirmacao } =
+  await db.auth.mfa.challengeAndVerify({
+    factorId: cadastro.id,
+    code: codigoInicial.trim()
+  });
+
+if (erroConfirmacao) {
+  alert("Erro ao confirmar: " + erroConfirmacao.message);
+  return;
+}
+
+janela.close();
+alert("Google Authenticator configurado com sucesso!");
   return;
 }
 
