@@ -549,12 +549,13 @@ async function carregarRelatorios() {
       currency: "BRL"
     });
 
-    alert(
-      "RESUMO FINANCEIRO\n\n" +
-      "Recebido: " + moeda(recebido) + "\n" +
-      "Pendente: " + moeda(pendente) + "\n" +
-      "Atrasado: " + moeda(atrasado)
-    );
+  
+document.getElementById("resumoFinanceiro").innerHTML = `
+  <p><strong>Recebido:</strong> ${moeda(recebido)}</p>
+  <p><strong>Pendente:</strong> ${moeda(pendente)}</p>
+  <p><strong>Atrasado:</strong> ${moeda(atrasado)}</p>
+`;
+
   } catch (erro) {
     alert("Erro no relatório: " + erro.message);
   }
