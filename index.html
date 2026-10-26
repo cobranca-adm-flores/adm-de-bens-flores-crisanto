@@ -73,10 +73,38 @@ footer{text-align:center;margin:30px;color:#666}
 
   if (error) {
     alert("Erro no login: " + error.message);
-    return;
+    r
   }
 
-  alert("Login realizado com sucesso!");
+const { data: fatores, error: erroFatores } =
+  await db.auth.mfa.listFactors();
+
+if (erroFatores) {
+  alert("Erro na verificação: " + erroFatores.message);
+  return;
+}
+
+const fator = fatores.totp.find(f => f.status === "verified");
+
+if (!fator) {
+  alert("Verificação em duas etapas não configurada.");
+  return;
+}
+
+const codigo = prompt("Digite o código de 6 dígitos do Google Authenticator:");
+if (!codigo) return;
+
+const { error: erroMFA } = await db.auth.mfa.challengeAndVerify({
+  factorId: fator.id,
+  code: codigo.trim()
+});
+
+if (erroMFA) {
+  alert("Código inválido: " + erroMFA.message);
+  return;
+}
+
+alert("Login e verificação de segurança realizados com sucesso!");
 }
 const SUPABASE_URL = "https://mstzwpfiijzqagqjifmf.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ";
