@@ -848,23 +848,42 @@ async function editarContrato(c){
 async function alternarContrato(c){try{const user=await usuarioAdministrador();if(!confirm((c.active?"Encerrar":"Reativar")+" este contrato? As cobranças existentes permanecerão no banco."))return;const {data,error}=await db.from("leases").update({active:!c.active}).eq("id",c.id).eq("owner_id",user.id).select("id");if(error)throw error;if(!data?.length)throw new Error("Contrato não encontrado ou sem permissão.");await carregarContratos();}catch(e){alert("Erro: "+e.message);}}
 
 
-// Nova cobrança avulsa: não gera duplicações automáticas.
+// Nova cobrança vinculada a contrato ativo.
 async function criarCobranca(){
  try{
-  const user=await usuarioAdministrador();
-  const descricao=prompt("Descrição da cobrança:");if(descricao===null)return;
-  if(!descricao.trim())throw new Error("Informe uma descrição.");
-  const texto=prompt("Valor da cobrança (ex.: 1600,00):");if(texto===null)return;
-  const valor=Number(texto.trim().replace(/\./g,"").replace(",","."));
-  if(!Number.isFinite(valor)||valor<=0)throw new Error("Valor inválido.");
-  const vencimento=prompt("Data de vencimento (AAAA-MM-DD):",hojeISO());if(vencimento===null)return;
-  if(!validarDataISO(vencimento))throw new Error("Data inválida.");
-  if(!confirm(`Criar cobrança de ${reais(valor)} com vencimento ${dataBR(vencimento)}?`))return;
-  const {error}=await db.from("rent_charges").insert({owner_id:user.id,description:descricao.trim(),amount:valor,due_date:vencimento,status:"pending"});
-  if(error)throw error;
-  alert("Cobrança cadastrada.");await carregarPagamentos();await carregarRelatorios();
- }catch(e){alert("Não foi possível cadastrar a cobrança: "+(e.message||e)+". Se houver campo obrigatório no banco, precisaremos verificar sua estrutura.");}
+   const user=await usuarioAdministrador();
+   const {data:contratos,error:erroContratos}=await db.from("leases")
+     .select("id,property_id,tenant_id").eq("owner_id",user.id).eq("active",true);
+   if(erroContratos)throw erroContratos;
+   if(!contratos?.length)throw new Error("Nenhum contrato ativo encontrado. Cadastre um contrato primeiro.");
+   const [imoveis,inquilinos]=await Promise.all([
+     db.from("properties").select("id,name").eq("owner_id",user.id),
+     db.from("tenants").select("id,full_name").eq("owner_id",user.id)
+   ]);
+   if(imoveis.error)throw imoveis.error;
+   if(inquilinos.error)throw inquilinos.error;
+   const nomesImoveis=new Map((imoveis.data||[]).map(x=>[x.id,x.name]));
+   const nomesInquilinos=new Map((inquilinos.data||[]).map(x=>[x.id,x.full_name]));
+   const opcoes=contratos.map((c,i)=>`${i+1}. ${nomesImoveis.get(c.property_id)||"Imóvel não encontrado"} — ${nomesInquilinos.get(c.tenant_id)||"Inquilino não encontrado"}`);
+   const escolha=prompt("Escolha o número do contrato:\n"+opcoes.join("\n")+"\nDigite o número:");
+   if(escolha===null)return;
+   const numero=Number(escolha.trim());
+   if(!Number.isInteger(numero)||numero<1||numero>contratos.length)throw new Error("Número de contrato inválido.");
+   const contrato=contratos[numero-1];
+   const descricao=prompt("Descrição da cobrança:");if(descricao===null)return;
+   if(!descricao.trim())throw new Error("Informe uma descrição.");
+   const texto=prompt("Valor da cobrança (ex.: 1600,00):");if(texto===null)return;
+   const valor=Number(texto.trim().replace(/\./g,"").replace(",","."));
+   if(!Number.isFinite(valor)||valor<=0)throw new Error("Valor inválido.");
+   const vencimento=prompt("Data de vencimento (AAAA-MM-DD):",hojeISO());if(vencimento===null)return;
+   if(!validarDataISO(vencimento))throw new Error("Data inválida.");
+   if(!confirm(`Criar cobrança para ${opcoes[numero-1]}?\nDescrição: ${descricao.trim()}\nValor: ${reais(valor)}\nVencimento: ${dataBR(vencimento)}`))return;
+   const {error}=await db.from("rent_charges").insert({owner_id:user.id,lease_id:contrato.id,description:descricao.trim(),amount:valor,due_date:vencimento,status:"pending"});
+   if(error)throw error;
+   alert("Cobrança cadastrada.");await carregarPagamentos();await carregarRelatorios();
+ }catch(e){alert("Não foi possível cadastrar a cobrança: "+(e.message||e));}
 }
+
 async function exportarRelatorioCSV(){
  try{
   const user=await usuarioAdministrador();
