@@ -84,7 +84,7 @@ if (erroFatores) {
   return;
 }
 
-const fator = fatores.all.find(f => f.factor_type === "totp");
+const fator = fatores.all.find(f => f.factor_type === "totp" && f.status === "verified");
 
 if (!fator) {
   const { data: cadastro, error: erroCadastro } =
@@ -137,10 +137,7 @@ alert("Google Authenticator configurado com sucesso!");
   return;
 }
 
-if (fator.status === "unverified") {
-  alert("O autenticador ainda não foi confirmado. Precisamos concluir sua configuração.");
-  return;
-}
+
    const codigo = prompt("Digite o código de 6 dígitos do Google Authenticator:");
 if (!codigo) return;
 
