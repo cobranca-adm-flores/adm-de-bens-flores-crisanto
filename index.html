@@ -83,7 +83,7 @@ if (erroFatores) {
   alert("Erro na verificação: " + erroFatores.message);
   return;
 }
-
+   
 const fator = fatores.all.find(f => f.factor_type === "totp" && f.status === "verified");
 
 if (!fator) {
