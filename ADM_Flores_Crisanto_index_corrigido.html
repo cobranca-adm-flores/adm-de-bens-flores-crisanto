@@ -584,7 +584,9 @@ async function carregarRelatorios() {
     let recebido = 0;
     let pendente = 0;
     let atrasado = 0;
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = new Date().toLocaleDateString("en-CA", {
+  timeZone: "America/Sao_Paulo"
+});
 
     for (const cobranca of data || []) {
       const valor = Number(cobranca.amount) || 0;
