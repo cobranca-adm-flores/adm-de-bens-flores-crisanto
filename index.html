@@ -13,6 +13,18 @@ main{max-width:900px;margin:30px auto;padding:15px}
 .card h2{font-size:19px}
 button{background:#1764ad;color:white;border:0;border-radius:7px;padding:12px;cursor:pointer}button:focus-visible{outline:3px solid #e4a92b;outline-offset:2px}.muted{color:#64748b}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.secondary{background:#475569}.danger{background:#a42c35}.contrato{padding:12px 0;border-bottom:1px solid #e2e8f0} .contrato div{margin-top:5px} @media(max-width:680px){header{padding:18px 10px}h1{font-size:23px}}
 footer{text-align:center;margin:30px;color:#666}
+.statusbar{margin:12px 0;padding:12px 15px;border-radius:9px;background:#e2e8f0;font-size:14px}
+.statusbar.ok{background:#dcfce7;color:#166534}
+.item-row{padding:10px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}
+.item-row button{padding:8px 10px;margin:3px;font-size:13px}
+.item-row .danger{background:#a42c35}
+.payment-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e2e8f0;padding:10px 0}
+.payment-row button{padding:9px 12px}
+.summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.summary-grid div{padding:12px;background:#f1f5f9;border-radius:8px}
+.summary-grid strong{display:block;margin-top:6px}
+@media(max-width:680px){.summary-grid{grid-template-columns:1fr}}
+
 #listaPagamentos {
   background: white;
   padding: 20px;
@@ -39,17 +51,18 @@ footer{text-align:center;margin:30px;color:#666}
 <main>
 <h2>Painel administrativo</h2><p class="muted">Seus dados são consultados no Supabase. Faça login para acessar.</p>
  <button onclick="loginAdministrador()">Entrar como administrador</button> <button class="secondary" onclick="sairAdministrador()">Sair</button>
+<div id="statusAcesso" class="statusbar" role="status">Verificando sessão de administrador...</div>
 <div class="grid">
 <section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button>
- <div id="listaImoveis"></div>
+ <div id="listaImoveis" aria-live="polite"></div>
 <button onclick="cadastrarImovel()">+ Cadastrar imóvel</button></section>
 <section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="cadastrarInquilino()">Acessar</button>
- <div id="listaInquilinos"></div>
+ <div id="listaInquilinos" aria-live="polite"></div>
 <button onclick="carregarInquilinos()">
   Ver inquilinos cadastrados
 </button></section>
 <section class="card"><h2>Contratos de aluguel</h2><p>Contratos vinculados a imóveis e inquilinos</p><button onclick="carregarContratos()">Ver contratos</button> <button onclick="cadastrarContrato()">+ Cadastrar contrato</button><div id="listaContratos" aria-live="polite"></div></section>
-<section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos"></div></section>
+<section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos" aria-live="polite"></div></section>
 <section class="card"><h2>Recebimentos</h2><p>Confirmar uma cobrança existente</p><button onclick="registrarPagamento()">+ Registrar pagamento</button></section>
  <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
 <div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
@@ -138,6 +151,7 @@ lista.replaceChildren();
 
 data.forEach(imovel => {
 const item = document.createElement("div");
+item.className = "item-row";
 
 const nome = document.createElement("span");
 nome.textContent = imovel.name + " ";
@@ -148,6 +162,7 @@ editar.onclick = () => editarImovel(imovel);
 
 const excluir = document.createElement("button");
 excluir.textContent = "Excluir";
+excluir.className = "danger";
 excluir.onclick = () => excluirImovel(imovel);
 
 item.append(nome, editar, excluir);
@@ -326,6 +341,7 @@ async function cadastrarInquilino() {
     }
 
     alert("Inquilino cadastrado com sucesso!");
+   await carregarInquilinos();
   } catch (erro) {
     alert("Erro: " + erro.message);
   }
@@ -356,7 +372,7 @@ async function carregarInquilinos() {
 
     const { data, error } = await db
       .from("tenants")
-      .select("id, full_name")
+      .select("id, full_name, phone, document_ref")
       .eq("owner_id", user.id)
       .order("full_name");
 
@@ -371,6 +387,7 @@ async function carregarInquilinos() {
 
    data.forEach(inquilino => {
   const item = document.createElement("div");
+  item.className = "item-row";
 
   const nome = document.createElement("span");
   nome.textContent = inquilino.full_name + " ";
@@ -381,6 +398,7 @@ async function carregarInquilinos() {
 
   const excluir = document.createElement("button");
   excluir.textContent = "Excluir";
+  excluir.className = "danger";
   excluir.onclick = () => excluirInquilino(inquilino);
 
   item.append(nome, editar, excluir);
@@ -512,7 +530,7 @@ async function carregarPagamentos() {
 
     const { data, error } = await db
       .from("rent_charges")
-      .select("description, amount, due_date, status")
+      .select("id, description, amount, due_date, status")
       .eq("owner_id", user.id)
       .order("due_date", { ascending: false });
 
@@ -530,24 +548,16 @@ async function carregarPagamentos() {
     });
 
     data.forEach(cobranca => {
-      const item = document.createElement("p");
-
-      const situacao = cobranca.status === "cancelled" ? "CANCELADO" : cobranca.status === "paid"
-        ? "PAGO"
-        : cobranca.due_date < hoje
-          ? "ATRASADO"
-          : "PENDENTE";
-
-      const valor = Number(cobranca.amount)
-        .toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL"
-        });
-
-      item.textContent =
-        cobranca.description + " - " +
-        valor + " - " + situacao;
-
+      const item=document.createElement("div");item.className="payment-row";
+      const texto=document.createElement("span");
+      const situacao=cobranca.status==="cancelled"?"CANCELADO":cobranca.status==="paid"?"PAGO":cobranca.due_date<hoje?"ATRASADO":"PENDENTE";
+      texto.textContent=`${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}`;
+      item.appendChild(texto);
+      if(cobranca.status!=="paid" && cobranca.status!=="cancelled"){
+        const botao=document.createElement("button");botao.textContent="Confirmar recebimento";
+        botao.onclick=()=>registrarPagamentoPorId(cobranca.id);
+        item.appendChild(botao);
+      }
       lista.appendChild(item);
     });
 
@@ -614,11 +624,16 @@ async function carregarRelatorios() {
     });
 
   
-document.getElementById("resumoFinanceiro").innerHTML = `
-  <p><strong>Recebido:</strong> ${moeda(recebido)}</p>
-  <p><strong>Pendente:</strong> ${moeda(pendente)}</p>
-  <p><strong>Atrasado:</strong> ${moeda(atrasado)}</p>
-`;
+const resumo=document.getElementById("resumoFinanceiro");
+resumo.replaceChildren();
+const grade=document.createElement("div");grade.className="summary-grid";
+for(const [rotulo,valor] of [["Recebido",recebido],["Pendente",pendente],["Atrasado",atrasado]]){
+  const bloco=document.createElement("div");
+  const titulo=document.createElement("span");titulo.textContent=rotulo;
+  const numero=document.createElement("strong");numero.textContent=moeda(valor);
+  bloco.append(titulo,numero);grade.appendChild(bloco);
+}
+resumo.appendChild(grade);
 
   } catch (erro) {
     alert("Erro no relatório: " + erro.message);
@@ -626,81 +641,45 @@ document.getElementById("resumoFinanceiro").innerHTML = `
 }
 
 
-async function registrarPagamento() {
-  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
-    alert("Entre como administrador e confirme o código do autenticador primeiro.");
-    return;
-  }
-
-  try {
-    const descricao = prompt("Digite a descrição da cobrança que foi paga:");
-    if (!descricao) return;
-
-    
-
-    const { data: { user }, error: erroUsuario } = await db.auth.getUser();
-    if (erroUsuario || !user) {
-      alert("Entre como administrador primeiro.");
-      return;
-    }
-
-    const { data: cobrancas, error } = await db
-      .from("rent_charges")
-      .select("id, description, amount, status")
-      .eq("owner_id", user.id)
-      .ilike("description", "%" + descricao.trim() + "%");
-
-    if (error) throw error;
-
-    if (!cobrancas || cobrancas.length !== 1) {
-      alert("Encontradas " + (cobrancas?.length || 0) +
-        " cobranças. Digite uma descrição mais específica.");
-      return;
-    }
-
-    const cobranca = cobrancas[0];
-
-    if (cobranca.status === "paid") {
-      alert("Essa cobrança já está marcada como paga.");
-      return;
-    }
-
-    const confirmar = confirm(
-      "Confirmar recebimento de " + cobranca.description +
-      " no valor de R$ " + Number(cobranca.amount).toFixed(2) + "?"
-    );
-    if (!confirmar) return;
-
-try {
-  const { error: erroPagamento } = await db
-    .from("payments")
-    .insert({
-      owner_id: user.id,
-      charge_id: cobranca.id,
-      paid_at: hojeISO(),
-      amount: Number(cobranca.amount)
-    });
-
-  if (erroPagamento) throw erroPagamento;
-
-  const { error: erroAtualizacao } = await db
-    .from("rent_charges")
-    .update({ status: "paid" })
-    .eq("id", cobranca.id)
-    .eq("owner_id", user.id);
-
-  if (erroAtualizacao) throw erroAtualizacao;
-
-    alert("Cobrança marcada como paga!");
-    await carregarPagamentos();
-    await carregarRelatorios();
-  } catch (erro) {
-    alert("Erro ao registrar pagamento: " + erro.message);
-  } 
-} catch (erro) {
-  alert("Erro ao registrar pagamento: " + erro.message);
+async function registrarPagamento(){
+  try{
+    const user=await usuarioAdministrador();
+    const {data,error}=await db.from("rent_charges")
+      .select("id,description,amount,due_date,status")
+      .eq("owner_id",user.id).eq("status","pending").order("due_date");
+    if(error)throw error;
+    if(!data?.length){alert("Não há cobranças pendentes.");return;}
+    const resposta=prompt("Escolha o número da cobrança recebida:\n"+data.map((c,i)=>`${i+1}. ${c.description} — ${reais(c.amount)} — ${dataBR(c.due_date)}`).join("\n"));
+    if(resposta===null)return;
+    const numero=Number(resposta);
+    if(!Number.isInteger(numero)||numero<1||numero>data.length)throw new Error("Escolha um número válido.");
+    await registrarPagamentoPorId(data[numero-1].id);
+  }catch(e){alert("Erro ao selecionar pagamento: "+e.message);}
 }
+async function registrarPagamentoPorId(id){
+  try{
+    const user=await usuarioAdministrador();
+    const {data:c,error}=await db.from("rent_charges")
+      .select("id,description,amount,status").eq("id",id).eq("owner_id",user.id).single();
+    if(error)throw error;
+    if(c.status!=="pending")throw new Error("Esta cobrança não está pendente.");
+    if(!confirm(`Confirmar recebimento de ${c.description}, no valor de ${reais(c.amount)}?`))return;
+    // Primeiro registra o comprovante contábil; em caso de falha na etapa seguinte,
+    // não repete a inserção automaticamente para evitar pagamentos duplicados.
+    const {error:erroPagamento}=await db.from("payments").insert({
+      owner_id:user.id,charge_id:c.id,paid_at:hojeISO(),amount:Number(c.amount)
+    });
+    if(erroPagamento)throw erroPagamento;
+    const {data:atualizada,error:erroStatus}=await db.from("rent_charges")
+      .update({status:"paid"}).eq("id",c.id).eq("owner_id",user.id)
+      .eq("status","pending").select("id");
+    if(erroStatus||!atualizada?.length){
+      alert("ATENÇÃO: o recebimento foi inserido em payments, mas a cobrança não foi atualizada. NÃO registre novamente. Verifique os dados no Supabase. Detalhe: "+(erroStatus?.message||"Cobrança não atualizada"));
+      return;
+    }
+    alert("Recebimento registrado com sucesso!");
+    await carregarPagamentos();await carregarRelatorios();
+  }catch(e){alert("Não foi possível confirmar o recebimento: "+e.message);}
 }
 
 // Contratos: utiliza a tabela public.leases existente, sem alterar o banco.
@@ -782,7 +761,7 @@ async function cadastrarContrato() {
 function nomes(valor){return String(valor||"").trim();}
 function hojeISO(){const p=new Intl.DateTimeFormat("en-GB",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const get=t=>p.find(x=>x.type===t).value;return `${get("year")}-${get("month")}-${get("day")}`;}
 function validarDataISO(data){if(!/^\d{4}-\d{2}-\d{2}$/.test(data))return false;const d=new Date(data+"T12:00:00Z");return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===data;}
-async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
+async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});await atualizarStatusAcesso();alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
 async function editarContrato(c){
  try{const user=await usuarioAdministrador();
  const inicio=prompt("Início (AAAA-MM-DD):",c.start_date);if(inicio===null)return;
