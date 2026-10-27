@@ -84,7 +84,7 @@ if (erroFatores) {
   return;
 }
    
-const fator = fatores.all.find(f => f.factor_type === "totp" && f.status === "verified");
+const fator = fatores.all.find(f => f.factor_type === "totp");
 
 if (!fator) {
   const { data: cadastro, error: erroCadastro } =
