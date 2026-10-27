@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADM de Bens Flores Crisanto</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f5f9;margin:0;color:#172033}
+header{background:#173b67;color:white;padding:25px;text-align:center}
+main{max-width:900px;margin:30px auto;padding:15px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;align-items:start}
+.card{background:white;padding:25px;border-radius:12px;box-shadow:0 2px 8px #0001}
+.card h2{font-size:19px}
+button{background:#1764ad;color:white;border:0;border-radius:7px;padding:12px;cursor:pointer}button:focus-visible{outline:3px solid #e4a92b;outline-offset:2px}.muted{color:#64748b}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.secondary{background:#475569}.danger{background:#a42c35}.contrato{padding:12px 0;border-bottom:1px solid #e2e8f0} .contrato div{margin-top:5px} @media(max-width:680px){header{padding:18px 10px}h1{font-size:23px}}
+footer{text-align:center;margin:30px;color:#666}
+#listaPagamentos {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.grid > .card:has(#listaPagamentos) {
+  grid-column: 1 / -1;
+}
+
+#listaPagamentos {
+  padding: 15px 0;
+}
+@media(max-width:680px){.grid{grid-template-columns:1fr}main{margin:10px auto}.card{padding:18px}button{margin:3px 2px}}
+#listaContratos{margin-top:12px;line-height:1.7;overflow-wrap:anywhere}
+#listaContratos .contrato{padding:10px 0;border-bottom:1px solid #ddd}
+</style>
+ <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<header><h1>ADM de Bens Flores Crisanto</h1><p>Administração de imóveis e aluguéis</p></header>
+<main>
+<h2>Painel administrativo</h2><p class="muted">Seus dados são consultados no Supabase. Faça login para acessar.</p>
+ <button onclick="loginAdministrador()">Entrar como administrador</button> <button class="secondary" onclick="sairAdministrador()">Sair</button>
+<div class="grid">
+<section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button>
+ <div id="listaImoveis"></div>
+<button onclick="cadastrarImovel()">+ Cadastrar imóvel</button></section>
+<section class="card"><h2>Inquilinos</h2><p>Cadastro de inquilinos</p><button onclick="cadastrarInquilino()">Acessar</button>
+ <div id="listaInquilinos"></div>
+<button onclick="carregarInquilinos()">
+  Ver inquilinos cadastrados
+</button></section>
+<section class="card"><h2>Contratos de aluguel</h2><p>Contratos vinculados a imóveis e inquilinos</p><button onclick="carregarContratos()">Ver contratos</button> <button onclick="cadastrarContrato()">+ Cadastrar contrato</button><div id="listaContratos" aria-live="polite"></div></section>
+<section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos"></div></section>
+<section class="card"><h2>Recebimentos</h2><p>Confirmar uma cobrança existente</p><button onclick="registrarPagamento()">+ Registrar pagamento</button></section>
+ <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
+<div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
+</section>
+</div>
+</main>
+<footer>ADM de Bens Flores Crisanto</footer>
+<script>
+
+
+ async function loginAdministrador() {
+   try {
+     const email = prompt("Digite seu e-mail:");
+     if (!email) return;
+     const senha = prompt("Digite sua senha:");
+     if (!senha) return;
+
+     const { error: erroLogin } = await db.auth.signInWithPassword({
+       email: email.trim(), password: senha
+     });
+     if (erroLogin) throw erroLogin;
+
+     const { data: fatores, error: erroFatores } = await db.auth.mfa.listFactors();
+     if (erroFatores) throw erroFatores;
+
+     const disponiveis = fatores?.all || [];
+     const fator = disponiveis.find(f => f.factor_type === "totp" && f.status === "verified")
+       || disponiveis.find(f => f.factor_type === "totp");
+
+     if (!fator) {
+       alert("Nenhum autenticador TOTP disponível nesta sessão. Já existe um cadastro anterior no Supabase. Não vamos criar outro automaticamente. Precisamos verificar o fator existente antes de prosseguir.");
+       return;
+     }
+
+     const codigo = prompt(fator.status === "verified"
+       ? "Digite o código de 6 dígitos do Google Authenticator:"
+       : "Seu autenticador ainda não foi confirmado. Se você já escaneou o QR Code original, digite o código de 6 dígitos para confirmar:");
+     if (!codigo) return;
+
+     const { error: erroMFA } = await db.auth.mfa.challengeAndVerify({
+       factorId: fator.id, code: codigo.trim()
+     });
+     if (erroMFA) throw erroMFA;
+
+     const { data: nivel, error: erroNivel } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+     if (erroNivel) throw erroNivel;
+     if (nivel.currentLevel !== "aal2") {
+       alert("O autenticador ainda não atingiu o nível de segurança exigido. Verifique a configuração antes de usar o aplicativo.");
+       return;
+     }
+     alert("Login e verificação de segurança realizados com sucesso!");
+   } catch (erro) {
+     alert("Erro no acesso: " + (erro.message || String(erro)));
+   }
+ }
+const SUPABASE_URL = "https://mstzwpfiijzqagqjifmf.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ";
+ const db = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+ async function carregarImoveis() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  try {
+    
+
+    const { data, error } = await db
+      .from("properties")
+   .select("id, name, address")
+      .limit(20);
+
+    if (error) {
+      alert("Erro na consulta: " + error.message);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      alert("Nenhum imóvel encontrado.");
+      return;
+    }
+
+ const lista = document.getElementById("listaImoveis");
+lista.replaceChildren();
+
+data.forEach(imovel => {
+const item = document.createElement("div");
+
+const nome = document.createElement("span");
+nome.textContent = imovel.name + " ";
+
+const editar = document.createElement("button");
+editar.textContent = "Editar";
+editar.onclick = () => editarImovel(imovel);
+
+const excluir = document.createElement("button");
+excluir.textContent = "Excluir";
+excluir.onclick = () => excluirImovel(imovel);
+
+item.append(nome, editar, excluir);
+lista.appendChild(item);
+});
+  } catch (erro) {
+    alert("Erro: " + erro.message);
+  }
+}
+  function abrirImoveis() {
+  const nome = prompt("Digite o nome do imóvel:");
+  if (nome === null) return;
+  if (!nome.trim()) {
+    alert("Digite um nome válido.");
+    return;
+  }
+  alert("Imóvel informado: " + nome + "\nCadastro de teste. Ainda não foi salvo.");
+}
+function aviso(){alert("Funcionalidade em desenvolvimento.")}
+
+ 
+async function cadastrarImovel() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const nome = prompt("Digite o nome do imóvel:");
+  if (!nome || !nome.trim()) return;
+const endereco = prompt("Digite o endereço do imóvel:");
+if (!endereco || !endereco.trim()) return;
+  
+
+  const { data: { user }, error: authError } =
+    await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+  .insert({
+  name: nome.trim(),
+  address: endereco.trim(),
+  owner_id: user.id
+});
+
+  if (error) {
+    alert("Erro ao cadastrar: " + error.message);
+    return;
+  }
+
+  alert("Imóvel cadastrado com sucesso!");
+  await carregarImoveis();
+}
+async function editarImovel(imovel) {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const novoNome = prompt("Novo nome do imóvel:", imovel.name);
+  if (novoNome === null || !novoNome.trim()) return;
+
+  const novoEndereco = prompt("Novo endereço:", imovel.address || "");
+  if (novoEndereco === null || !novoEndereco.trim()) return;
+
+  
+
+  const { data: { user }, error: authError } = await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+    .update({
+      name: novoNome.trim(),
+      address: novoEndereco.trim()
+    })
+    .eq("id", imovel.id)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    alert("Erro ao editar: " + error.message);
+    return;
+  }
+
+  alert("Imóvel atualizado com sucesso!");
+  await carregarImoveis();
+}
+ async function excluirImovel(imovel) {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const confirmar = confirm(
+    "Tem certeza que deseja excluir o imóvel " +
+    imovel.name + "?"
+  );
+
+  if (!confirmar) return;
+
+  
+
+  const { data: { user }, error: authError } =
+    await db.auth.getUser();
+
+  if (authError || !user) {
+    alert("Entre como administrador primeiro.");
+    return;
+  }
+
+  const { error } = await db
+    .from("properties")
+    .delete()
+    .eq("id", imovel.id)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    alert("Erro ao excluir: " + error.message);
+    return;
+  }
+
+  alert("Solicitação de exclusão concluída.");
+  await carregarImoveis();
+}
+
+async function cadastrarInquilino() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const nome = prompt("Nome completo do inquilino:");
+  if (!nome || !nome.trim()) return;
+
+  const telefone = prompt("Telefone do inquilino:");
+  if (telefone === null) return;
+
+  const cpf = prompt("CPF do inquilino:");
+  if (cpf === null) return;
+
+  try {
+    
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { error } = await db
+      .from("tenants")
+      .insert({
+        full_name: nome.trim(),
+        phone: telefone.trim(),
+        document_ref: cpf.trim(),
+        owner_id: user.id
+      });
+
+    if (error) {
+      alert("Erro ao cadastrar: " + error.message);
+      return;
+    }
+
+    alert("Inquilino cadastrado com sucesso!");
+  } catch (erro) {
+    alert("Erro: " + erro.message);
+  }
+}
+async function carregarInquilinos() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const lista = document.getElementById("listaInquilinos");
+
+  if (!lista) return;
+
+  lista.textContent = "Carregando inquilinos...";
+
+  try {
+    
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      lista.textContent = "Entre como administrador primeiro.";
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .select("id, full_name")
+      .eq("owner_id", user.id)
+      .order("full_name");
+
+    if (error) throw error;
+
+    lista.replaceChildren();
+
+    if (!data || data.length === 0) {
+      lista.textContent = "Nenhum inquilino encontrado.";
+      return;
+    }
+
+   data.forEach(inquilino => {
+  const item = document.createElement("div");
+
+  const nome = document.createElement("span");
+  nome.textContent = inquilino.full_name + " ";
+
+  const editar = document.createElement("button");
+  editar.textContent = "Editar";
+  editar.onclick = () => editarInquilino(inquilino);
+
+  const excluir = document.createElement("button");
+  excluir.textContent = "Excluir";
+  excluir.onclick = () => excluirInquilino(inquilino);
+
+  item.append(nome, editar, excluir);
+  lista.appendChild(item);
+});
+
+  } catch (erro) {
+    lista.textContent = "Erro: " + erro.message;
+  }
+}
+async function editarInquilino(inquilino) {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const novoNome = prompt(
+    "Novo nome do inquilino:",
+    inquilino.full_name
+  );
+
+  if (novoNome === null) return;
+
+  if (!novoNome.trim()) {
+    alert("Digite um nome válido.");
+    return;
+  }
+
+  try {
+    
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .update({ full_name: novoNome.trim() })
+      .eq("id", inquilino.id)
+      .eq("owner_id", user.id)
+      .select("id");
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      alert("Inquilino não encontrado ou sem permissão.");
+      return;
+    }
+
+    alert("Inquilino atualizado com sucesso!");
+    await carregarInquilinos();
+
+  } catch (erro) {
+    alert("Erro ao editar: " + erro.message);
+  }
+}
+async function excluirInquilino(inquilino) {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const confirmar = confirm(
+    "Tem certeza que deseja excluir o inquilino " +
+    inquilino.full_name + "?"
+  );
+
+  if (!confirmar) return;
+
+  try {
+    
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("tenants")
+      .delete()
+      .eq("id", inquilino.id)
+      .eq("owner_id", user.id)
+      .select("id");
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      alert("Inquilino não excluído ou sem permissão.");
+      return;
+    }
+
+    alert("Inquilino excluído com sucesso!");
+    await carregarInquilinos();
+
+  } catch (erro) {
+    alert("Erro ao excluir: " + erro.message);
+  }
+}
+
+async function carregarPagamentos() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const lista = document.getElementById("listaPagamentos");
+  lista.textContent = "Carregando pagamentos...";
+
+  try {
+    
+
+    const { data: { user }, error: authError } =
+      await db.auth.getUser();
+
+    if (authError || !user) {
+      lista.textContent = "Entre como administrador primeiro.";
+      return;
+    }
+
+    const { data, error } = await db
+      .from("rent_charges")
+      .select("description, amount, due_date, status")
+      .eq("owner_id", user.id)
+      .order("due_date", { ascending: false });
+
+    if (error) throw error;
+
+    lista.replaceChildren();
+
+    if (!data || data.length === 0) {
+      lista.textContent = "Nenhuma cobrança encontrada.";
+      return;
+    }
+
+    const hoje = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/Sao_Paulo"
+    });
+
+    data.forEach(cobranca => {
+      const item = document.createElement("p");
+
+      const situacao = cobranca.status === "cancelled" ? "CANCELADO" : cobranca.status === "paid"
+        ? "PAGO"
+        : cobranca.due_date < hoje
+          ? "ATRASADO"
+          : "PENDENTE";
+
+      const valor = Number(cobranca.amount)
+        .toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL"
+        });
+
+      item.textContent =
+        cobranca.description + " - " +
+        valor + " - " + situacao;
+
+      lista.appendChild(item);
+    });
+
+  } catch (erro) {
+    lista.textContent = "Erro: " + erro.message;
+  }
+}
+
+
+async function carregarRelatorios() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  const lista = document.getElementById("listaPagamentos");
+  if (!lista) {
+    alert("Abra primeiro a seção de Pagamentos.");
+    return;
+  }
+
+  try {
+    
+
+    const { data: usuario } = await db.auth.getUser();
+    if (!usuario.user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data, error } = await db
+      .from("rent_charges")
+      .select("amount,status,due_date")
+      .eq("owner_id", usuario.user.id);
+
+    if (error) throw error;
+
+    let recebido = 0;
+    let pendente = 0;
+    let atrasado = 0;
+    const hoje = new Date().toLocaleDateString("en-CA", {
+  timeZone: "America/Sao_Paulo"
+});
+
+    for (const cobranca of data || []) {
+      const valor = Number(cobranca.amount) || 0;
+      if (cobranca.status === "cancelled") {
+        continue;
+      } else if (cobranca.status === "paid") {
+        recebido += valor;
+      } else if (cobranca.status === "cancelled") {
+         continue;
+       } else if (cobranca.due_date < hoje) {
+        atrasado += valor;
+      } else {
+        pendente += valor;
+      }
+    }
+
+    const moeda = valor => valor.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+
+  
+document.getElementById("resumoFinanceiro").innerHTML = `
+  <p><strong>Recebido:</strong> ${moeda(recebido)}</p>
+  <p><strong>Pendente:</strong> ${moeda(pendente)}</p>
+  <p><strong>Atrasado:</strong> ${moeda(atrasado)}</p>
+`;
+
+  } catch (erro) {
+    alert("Erro no relatório: " + erro.message);
+  }
+}
+
+
+async function registrarPagamento() {
+  const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroAcesso || nivelAcesso?.currentLevel !== "aal2") {
+    alert("Entre como administrador e confirme o código do autenticador primeiro.");
+    return;
+  }
+
+  try {
+    const descricao = prompt("Digite a descrição da cobrança que foi paga:");
+    if (!descricao) return;
+
+    
+
+    const { data: { user }, error: erroUsuario } = await db.auth.getUser();
+    if (erroUsuario || !user) {
+      alert("Entre como administrador primeiro.");
+      return;
+    }
+
+    const { data: cobrancas, error } = await db
+      .from("rent_charges")
+      .select("id, description, amount, status")
+      .eq("owner_id", user.id)
+      .ilike("description", "%" + descricao.trim() + "%");
+
+    if (error) throw error;
+
+    if (!cobrancas || cobrancas.length !== 1) {
+      alert("Encontradas " + (cobrancas?.length || 0) +
+        " cobranças. Digite uma descrição mais específica.");
+      return;
+    }
+
+    const cobranca = cobrancas[0];
+
+    if (cobranca.status === "paid") {
+      alert("Essa cobrança já está marcada como paga.");
+      return;
+    }
+
+    const confirmar = confirm(
+      "Confirmar recebimento de " + cobranca.description +
+      " no valor de R$ " + Number(cobranca.amount).toFixed(2) + "?"
+    );
+    if (!confirmar) return;
+
+try {
+  const { error: erroPagamento } = await db
+    .from("payments")
+    .insert({
+      owner_id: user.id,
+      charge_id: cobranca.id,
+      paid_at: hojeISO(),
+      amount: Number(cobranca.amount)
+    });
+
+  if (erroPagamento) throw erroPagamento;
+
+  const { error: erroAtualizacao } = await db
+    .from("rent_charges")
+    .update({ status: "paid" })
+    .eq("id", cobranca.id)
+    .eq("owner_id", user.id);
+
+  if (erroAtualizacao) throw erroAtualizacao;
+
+    alert("Cobrança marcada como paga!");
+    await carregarPagamentos();
+    await carregarRelatorios();
+  } catch (erro) {
+    alert("Erro ao registrar pagamento: " + erro.message);
+  } 
+} catch (erro) {
+  alert("Erro ao registrar pagamento: " + erro.message);
+}
+}
+
+// Contratos: utiliza a tabela public.leases existente, sem alterar o banco.
+async function usuarioAdministrador() {
+  const { data: nivel, error: erroNivel } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (erroNivel || nivel?.currentLevel !== "aal2") throw new Error("Entre como administrador e confirme o autenticador primeiro.");
+  const { data, error } = await db.auth.getUser();
+  if (error || !data?.user) throw new Error("Sessão expirada. Entre novamente.");
+  return data.user;
+}
+const reais = valor => Number(valor).toLocaleString("pt-BR", {style:"currency", currency:"BRL"});
+const dataBR = data => data ? String(data).slice(0,10).split("-").reverse().join("/") : "Sem data";
+async function carregarContratos() {
+  const lista = document.getElementById("listaContratos");
+  lista.textContent = "Carregando contratos...";
+  try {
+    const user = await usuarioAdministrador();
+    const {data, error} = await db.from("leases")
+      .select("id,property_id,tenant_id,start_date,end_date,monthly_rent,due_day,active")
+      .eq("owner_id", user.id).order("start_date",{ascending:false});
+    if (error) throw error;
+    lista.replaceChildren();
+    if (!data?.length) {lista.textContent="Nenhum contrato cadastrado.";return;}
+    const [imoveis, inquilinos] = await Promise.all([
+      db.from("properties").select("id,name").eq("owner_id",user.id),
+      db.from("tenants").select("id,full_name").eq("owner_id",user.id)
+    ]);
+    if(imoveis.error) throw imoveis.error;
+    if(inquilinos.error) throw inquilinos.error;
+    const nomesImoveis = new Map((imoveis.data||[]).map(x=>[x.id,x.name]));
+    const nomesInquilinos = new Map((inquilinos.data||[]).map(x=>[x.id,x.full_name]));
+    data.forEach(c=>{
+      const item=document.createElement("div");item.className="contrato";
+      const titulo=document.createElement("strong");
+      titulo.textContent=(nomesImoveis.get(c.property_id)||"Imóvel não encontrado")+" — "+(nomesInquilinos.get(c.tenant_id)||"Inquilino não encontrado");
+      const detalhe=document.createElement("div");
+      detalhe.textContent=`${reais(c.monthly_rent)} por mês | Vencimento dia ${c.due_day} | Início ${dataBR(c.start_date)} | Término ${c.end_date?dataBR(c.end_date):"Não informado"} | ${c.active?"Ativo":"Inativo"}`;
+      const acoes=document.createElement("div");acoes.className="actions";
+      const editar=document.createElement("button");editar.textContent="Editar contrato";editar.className="secondary";editar.onclick=()=>editarContrato(c);
+      const alternar=document.createElement("button");alternar.textContent=c.active?"Encerrar contrato":"Reativar contrato";alternar.className=c.active?"danger":"secondary";alternar.onclick=()=>alternarContrato(c);
+      acoes.append(editar,alternar);
+      item.append(titulo,detalhe,acoes);lista.appendChild(item);
+    });
+  } catch(erro){lista.textContent="Erro ao consultar contratos: "+(erro.message||erro);}
+}
+async function cadastrarContrato() {
+  try {
+    const user=await usuarioAdministrador();
+    const [imoveis, inquilinos]=await Promise.all([
+      db.from("properties").select("id,name").eq("owner_id",user.id).order("name"),
+      db.from("tenants").select("id,full_name").eq("owner_id",user.id).order("full_name")
+    ]);
+    if(imoveis.error) throw imoveis.error;
+    if(inquilinos.error) throw inquilinos.error;
+    if(!imoveis.data?.length || !inquilinos.data?.length){alert("Cadastre primeiro um imóvel e um inquilino.");return;}
+    const escolher=(titulo, itens, campo)=>{
+      const resposta=prompt(titulo+"\n"+itens.map((x,i)=>`${i+1}. ${x[campo]}`).join("\n")+"\nDigite o número:");
+      if(resposta===null) return null;
+      const numero=Number(resposta);
+      if(!Number.isInteger(numero)||numero<1||numero>itens.length)throw new Error("Seleção inválida.");
+      return itens[numero-1];
+    };
+    const imovel=escolher("Escolha o imóvel",imoveis.data,"name");if(!imovel)return;
+    const inquilino=escolher("Escolha o inquilino",inquilinos.data,"full_name");if(!inquilino)return;
+    const inicio=prompt("Início do contrato (AAAA-MM-DD):",hojeISO());if(inicio===null)return;
+    const fim=prompt("Término do contrato (AAAA-MM-DD), ou deixe vazio:","");if(fim===null)return;
+    const aluguelTexto=prompt("Valor mensal do aluguel (exemplo: 1600,00):");if(aluguelTexto===null)return;
+    const diaTexto=prompt("Dia de vencimento (1 a 31):","10");if(diaTexto===null)return;
+    const valido=data=>/^\d{4}-\d{2}-\d{2}$/.test(data)&&!Number.isNaN(Date.parse(data))&&new Date(data+"T12:00:00Z").toISOString().slice(0,10)===data;
+    const aluguel=Number(aluguelTexto.trim().replace(/\./g,"").replace(",","."));
+    const dia=Number(diaTexto);
+    if(!valido(inicio)|| (fim.trim()&&!valido(fim.trim())) || (fim.trim()&&fim.trim()<inicio) || !Number.isFinite(aluguel)||aluguel<=0 || !Number.isInteger(dia)||dia<1||dia>31)throw new Error("Confira as datas, o valor e o dia de vencimento.");
+    if(!confirm(`Cadastrar contrato de ${nomes(imovel.name)} para ${nomes(inquilino.full_name)}, aluguel ${reais(aluguel)}?`))return;
+    const {error}=await db.from("leases").insert({owner_id:user.id,property_id:imovel.id,tenant_id:inquilino.id,start_date:inicio,end_date:fim.trim()||null,monthly_rent:aluguel,due_day:dia,active:true});
+    if(error)throw error;
+    alert("Contrato cadastrado com sucesso!");await carregarContratos();
+  }catch(erro){alert("Não foi possível cadastrar: "+(erro.message||erro));}
+}
+function nomes(valor){return String(valor||"").trim();}
+function hojeISO(){const p=new Intl.DateTimeFormat("en-GB",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const get=t=>p.find(x=>x.type===t).value;return `${get("year")}-${get("month")}-${get("day")}`;}
+function validarDataISO(data){if(!/^\d{4}-\d{2}-\d{2}$/.test(data))return false;const d=new Date(data+"T12:00:00Z");return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===data;}
+async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
+async function editarContrato(c){
+ try{const user=await usuarioAdministrador();
+ const inicio=prompt("Início (AAAA-MM-DD):",c.start_date);if(inicio===null)return;
+ const fim=prompt("Término (AAAA-MM-DD), vazio se indefinido:",c.end_date||"");if(fim===null)return;
+ const valorTexto=prompt("Aluguel mensal (ex.: 1600,00):",Number(c.monthly_rent).toFixed(2).replace(".",","));if(valorTexto===null)return;
+ const diaTexto=prompt("Dia de vencimento (1 a 31):",String(c.due_day));if(diaTexto===null)return;
+ const valor=Number(valorTexto.trim().replace(/\./g,"").replace(",","."));const dia=Number(diaTexto);
+ if(!validarDataISO(inicio)||fim.trim()&&(!validarDataISO(fim.trim())||fim.trim()<inicio)||!Number.isFinite(valor)||valor<=0||!Number.isInteger(dia)||dia<1||dia>31)throw new Error("Confira os dados do contrato.");
+ if(!confirm("Salvar alterações neste contrato? As cobranças existentes não serão modificadas."))return;
+ const {data,error}=await db.from("leases").update({start_date:inicio,end_date:fim.trim()||null,monthly_rent:valor,due_day:dia}).eq("id",c.id).eq("owner_id",user.id).select("id");if(error)throw error;if(!data?.length)throw new Error("Contrato não encontrado ou sem permissão.");alert("Contrato atualizado.");await carregarContratos();
+ }catch(e){alert("Erro ao editar contrato: "+e.message);}
+}
+async function alternarContrato(c){try{const user=await usuarioAdministrador();if(!confirm((c.active?"Encerrar":"Reativar")+" este contrato? As cobranças existentes permanecerão no banco."))return;const {data,error}=await db.from("leases").update({active:!c.active}).eq("id",c.id).eq("owner_id",user.id).select("id");if(error)throw error;if(!data?.length)throw new Error("Contrato não encontrado ou sem permissão.");await carregarContratos();}catch(e){alert("Erro: "+e.message);}}
+
+
+// Nova cobrança avulsa: não gera duplicações automáticas.
+async function criarCobranca(){
+ try{
+  const user=await usuarioAdministrador();
+  const descricao=prompt("Descrição da cobrança:");if(descricao===null)return;
+  if(!descricao.trim())throw new Error("Informe uma descrição.");
+  const texto=prompt("Valor da cobrança (ex.: 1600,00):");if(texto===null)return;
+  const valor=Number(texto.trim().replace(/\./g,"").replace(",","."));
+  if(!Number.isFinite(valor)||valor<=0)throw new Error("Valor inválido.");
+  const vencimento=prompt("Data de vencimento (AAAA-MM-DD):",hojeISO());if(vencimento===null)return;
+  if(!validarDataISO(vencimento))throw new Error("Data inválida.");
+  if(!confirm(`Criar cobrança de ${reais(valor)} com vencimento ${dataBR(vencimento)}?`))return;
+  const {error}=await db.from("rent_charges").insert({owner_id:user.id,description:descricao.trim(),amount:valor,due_date:vencimento,status:"pending"});
+  if(error)throw error;
+  alert("Cobrança cadastrada.");await carregarPagamentos();await carregarRelatorios();
+ }catch(e){alert("Não foi possível cadastrar a cobrança: "+(e.message||e)+". Se houver campo obrigatório no banco, precisaremos verificar sua estrutura.");}
+}
+async function exportarRelatorioCSV(){
+ try{
+  const user=await usuarioAdministrador();
+  const {data,error}=await db.from("rent_charges").select("description,amount,due_date,status").eq("owner_id",user.id).order("due_date",{ascending:false});
+  if(error)throw error;
+  const linhas=[["Descrição","Valor (BRL)","Vencimento","Situação"]];
+  const hoje=hojeISO();
+  for(const c of data||[])linhas.push([c.description||"",String(c.amount||0),c.due_date||"",c.status==="paid"?"Pago":c.status==="cancelled"?"Cancelado":c.due_date<hoje?"Atrasado":"Pendente"]);
+  const csv="\uFEFF"+linhas.map(l=>l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\r\n");
+  const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  const a=document.createElement("a");a.href=url;a.download="relatorio-cobrancas-"+hoje+".csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }catch(e){alert("Erro ao exportar: "+(e.message||e));}
+}
+
+</script>
+</body>
+</html>
