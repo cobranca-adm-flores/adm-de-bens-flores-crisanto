@@ -50,8 +50,18 @@ footer{text-align:center;margin:30px;color:#666}
 <header><h1>ADM de Bens Flores Crisanto</h1><p>Administração de imóveis e aluguéis</p></header>
 <main>
 <h2>Painel administrativo</h2><p class="muted">Seus dados são consultados no Supabase. Faça login para acessar.</p>
- <button onclick="loginAdministrador()">Entrar como administrador</button> <button class="secondary" onclick="sairAdministrador()">Sair</button>
+ <button id="btnEntrar" onclick="loginAdministrador()">Entrar como administrador</button> <button id="btnSair" class="secondary" onclick="sairAdministrador()" hidden>Sair</button>
 <div id="statusAcesso" class="statusbar" role="status">Verificando sessão de administrador...</div>
+<dialog id="dialogMFA" aria-labelledby="tituloMFA" style="max-width:420px;width:calc(100% - 48px);border:0;border-radius:12px;padding:24px;box-shadow:0 12px 40px #0005">
+<h2 id="tituloMFA">Configurar Google Authenticator</h2>
+<p id="instrucaoMFA">Abra o Google Authenticator no celular, toque em + e escolha Ler código QR.</p>
+<img id="qrMFA" alt="QR Code para cadastrar o autenticador" style="display:block;width:220px;height:220px;max-width:100%;margin:16px auto" hidden>
+<label for="codigoMFA">Código de 6 números do celular</label>
+<input id="codigoMFA" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" style="display:block;box-sizing:border-box;width:100%;font-size:20px;padding:10px;margin:10px 0 16px">
+<div class="actions"><button id="confirmarMFA" onclick="confirmarMFA()">Confirmar código</button><button class="secondary" onclick="fecharMFA()">Cancelar</button></div>
+<p id="erroMFA" role="alert" style="color:#a42c35"></p>
+<p class="muted" style="font-size:12px">Não compartilhe este QR Code nem o código de 6 números.</p>
+</dialog>
 <div class="grid">
 <section class="card"><h2>Imóveis</h2><p>Cadastro e gestão de imóveis</p><button onclick="carregarImoveis()">Acessar</button>
  <div id="listaImoveis" aria-live="polite"></div>
@@ -73,51 +83,112 @@ footer{text-align:center;margin:30px;color:#666}
 <script>
 
 
- async function loginAdministrador() {
-   try {
-     const email = prompt("Digite seu e-mail:");
-     if (!email) return;
-     const senha = prompt("Digite sua senha:");
-     if (!senha) return;
+let fatorMFAAtual = null;
+let cadastroMFAEmAndamento = false;
 
-     const { error: erroLogin } = await db.auth.signInWithPassword({
-       email: email.trim(), password: senha
-     });
-     if (erroLogin) throw erroLogin;
+async function atualizarStatusAcesso() {
+  const status = document.getElementById("statusAcesso");
+  try {
+    const {data: sessao, error: erroSessao} = await db.auth.getSession();
+    if (erroSessao) throw erroSessao;
+    const conectado = !!sessao?.session;
+    let verificado = false;
+    if (conectado) {
+      const {data: nivel, error: erroNivel} = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (erroNivel) throw erroNivel;
+      verificado = nivel?.currentLevel === "aal2";
+    }
+    status.textContent = !conectado ? "Acesso protegido: entre como administrador." : verificado ? "Administrador autenticado com verificação de segurança." : "Senha aceita. Falta confirmar ou configurar o Google Authenticator.";
+    status.classList.toggle("ok", verificado);
+    document.getElementById("btnEntrar").hidden = verificado;
+    document.getElementById("btnSair").hidden = !conectado;
+  } catch (e) {
+    status.textContent = "Não foi possível verificar a sessão: " + (e.message || e);
+    status.classList.remove("ok");
+  }
+}
 
-     const { data: fatores, error: erroFatores } = await db.auth.mfa.listFactors();
-     if (erroFatores) throw erroFatores;
-
-     const disponiveis = fatores?.all || [];
-     const fator = disponiveis.find(f => f.factor_type === "totp" && f.status === "verified")
-       || disponiveis.find(f => f.factor_type === "totp");
-
-     if (!fator) {
-       alert("Nenhum autenticador TOTP disponível nesta sessão. Já existe um cadastro anterior no Supabase. Não vamos criar outro automaticamente. Precisamos verificar o fator existente antes de prosseguir.");
-       return;
-     }
-
-     const codigo = prompt(fator.status === "verified"
-       ? "Digite o código de 6 dígitos do Google Authenticator:"
-       : "Seu autenticador ainda não foi confirmado. Se você já escaneou o QR Code original, digite o código de 6 dígitos para confirmar:");
-     if (!codigo) return;
-
-     const { error: erroMFA } = await db.auth.mfa.challengeAndVerify({
-       factorId: fator.id, code: codigo.trim()
-     });
-     if (erroMFA) throw erroMFA;
-
-     const { data: nivel, error: erroNivel } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
-     if (erroNivel) throw erroNivel;
-     if (nivel.currentLevel !== "aal2") {
-       alert("O autenticador ainda não atingiu o nível de segurança exigido. Verifique a configuração antes de usar o aplicativo.");
-       return;
-     }
-     alert("Login e verificação de segurança realizados com sucesso!");
-   } catch (erro) {
-     alert("Erro no acesso: " + (erro.message || String(erro)));
-   }
- }
+function abrirMFA(fator, qrCode, novo) {
+  fatorMFAAtual = fator.id;
+  cadastroMFAEmAndamento = novo;
+  const dialog = document.getElementById("dialogMFA");
+  const img = document.getElementById("qrMFA");
+  const instrucoes = document.getElementById("instrucaoMFA");
+  document.getElementById("erroMFA").textContent = "";
+  document.getElementById("codigoMFA").value = "";
+  if (novo) {
+    // O Supabase devolve o QR Code como imagem SVG em formato data URI.
+    if (typeof qrCode !== "string" || !qrCode.startsWith("data:image/svg+xml")) throw new Error("QR Code inválido recebido do Supabase.");
+    img.src = qrCode;
+    img.hidden = false;
+    instrucoes.textContent = "No celular, abra Google Authenticator, toque em + e escolha Ler código QR. Aponte para esta imagem e depois digite o código de 6 números.";
+  } else {
+    img.hidden = true;
+    img.removeAttribute("src");
+    instrucoes.textContent = "Digite o código de 6 números do autenticador já cadastrado.";
+  }
+  dialog.showModal();
+}
+function fecharMFA() {
+  document.getElementById("dialogMFA").close();
+  document.getElementById("qrMFA").removeAttribute("src");
+  fatorMFAAtual = null;
+  cadastroMFAEmAndamento = false;
+  atualizarStatusAcesso();
+}
+async function confirmarMFA() {
+  const codigo = document.getElementById("codigoMFA").value.trim();
+  const erro = document.getElementById("erroMFA");
+  if (!/^\d{6}$/.test(codigo)) {erro.textContent="Digite exatamente 6 números.";return;}
+  const botao = document.getElementById("confirmarMFA");
+  botao.disabled = true;
+  try {
+    if (!fatorMFAAtual) throw new Error("Nenhum autenticador selecionado.");
+    const {error: erroVerificacao} = await db.auth.mfa.challengeAndVerify({factorId:fatorMFAAtual,code:codigo});
+    if (erroVerificacao) throw erroVerificacao;
+    const {data: nivel, error: erroNivel} = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (erroNivel) throw erroNivel;
+    if (nivel?.currentLevel !== "aal2") throw new Error("A verificação não foi concluída. Tente novamente.");
+    fecharMFA();
+    await atualizarStatusAcesso();
+    alert("Login e verificação de segurança realizados com sucesso!");
+  } catch (e) {erro.textContent="Código não confirmado: "+(e.message||e);} finally {botao.disabled=false;}
+}
+async function loginAdministrador() {
+  try {
+    const {data: sessao} = await db.auth.getSession();
+    if (!sessao?.session) {
+      const email = prompt("Digite seu e-mail:");
+      if (!email) return;
+      const senha = prompt("Digite sua senha:");
+      if (!senha) return;
+      const {error} = await db.auth.signInWithPassword({email:email.trim(),password:senha});
+      if (error) throw error;
+    }
+    const {data: nivel, error: erroNivel} = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (erroNivel) throw erroNivel;
+    if (nivel?.currentLevel === "aal2") {await atualizarStatusAcesso();alert("Administrador já autenticado.");return;}
+    const {data: fatores, error: erroFatores} = await db.auth.mfa.listFactors();
+    if (erroFatores) throw erroFatores;
+    const todos = fatores?.all || [];
+    const existente = todos.find(f => f.factor_type === "totp" && f.status === "verified");
+    if (existente) {
+      abrirMFA(existente, null, false);
+    } else {
+      const pendentes = todos.filter(f => f.factor_type === "totp" && f.status !== "verified");
+      if (pendentes.length && !confirm("Há um cadastro de autenticador incompleto. Deseja substituí-lo por um novo QR Code?")) return;
+      for (const pendente of pendentes) {
+        const {error} = await db.auth.mfa.unenroll({factorId:pendente.id});
+        if (error) throw error;
+      }
+      const {data: novo, error: erroCadastro} = await db.auth.mfa.enroll({factorType:"totp",friendlyName:"ADM de Bens Flores Crisanto"});
+      if (erroCadastro) throw erroCadastro;
+      if (!novo?.id || !novo?.totp?.qr_code) throw new Error("O Supabase não devolveu o QR Code.");
+      abrirMFA({id:novo.id}, novo.totp.qr_code, true);
+    }
+    await atualizarStatusAcesso();
+  } catch (e) {alert("Erro no acesso: "+(e.message||e));await atualizarStatusAcesso();}
+}
 const SUPABASE_URL = "https://mstzwpfiijzqagqjifmf.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wpFiv-tgK9zW9EFqmEn3aQ_EW4rQ4DJ";
  const db = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
