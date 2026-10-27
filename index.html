@@ -877,8 +877,11 @@ async function criarCobranca(){
    if(!Number.isFinite(valor)||valor<=0)throw new Error("Valor inválido.");
    const vencimento=prompt("Data de vencimento (AAAA-MM-DD):",hojeISO());if(vencimento===null)return;
    if(!validarDataISO(vencimento))throw new Error("Data inválida.");
-   if(!confirm(`Criar cobrança para ${opcoes[numero-1]}?\nDescrição: ${descricao.trim()}\nValor: ${reais(valor)}\nVencimento: ${dataBR(vencimento)}`))return;
-   const {error}=await db.from("rent_charges").insert({owner_id:user.id,lease_id:contrato.id,description:descricao.trim(),amount:valor,due_date:vencimento,status:"pending"});
+   const mesReferencia=prompt("Mês de referência (AAAA-MM):",vencimento.slice(0,7));if(mesReferencia===null)return;
+   if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(mesReferencia.trim()))throw new Error("Mês de referência inválido. Use AAAA-MM.");
+   const referencia=mesReferencia.trim()+"-01";
+   if(!confirm(`Criar cobrança para ${opcoes[numero-1]}?\nDescrição: ${descricao.trim()}\nValor: ${reais(valor)}\nVencimento: ${dataBR(vencimento)}\nReferência: ${mesReferencia.trim()}`))return;
+   const {error}=await db.from("rent_charges").insert({owner_id:user.id,lease_id:contrato.id,reference_month:referencia,description:descricao.trim(),amount:valor,due_date:vencimento,status:"pending"});
    if(error)throw error;
    alert("Cobrança cadastrada.");await carregarPagamentos();await carregarRelatorios();
  }catch(e){alert("Não foi possível cadastrar a cobrança: "+(e.message||e));}
