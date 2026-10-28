@@ -82,6 +82,7 @@ footer{text-align:center;margin:30px;color:#666}
 <div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
 </section>
 <section class="card" style="grid-column:1/-1"><h2>Anúncios de apartamentos</h2><p>Prepare anúncios de unidades disponíveis, com fotos, valor e contato. Nenhum anúncio é publicado automaticamente.</p><div class="anuncio-form"><label for="anuncioUnidade">Apartamento / unidade</label><input id="anuncioUnidade" placeholder="Ex.: Apartamento 102" maxlength="100"><label for="anuncioValor">Aluguel mensal (R$)</label><input id="anuncioValor" inputmode="decimal" placeholder="Ex.: 1600,00"><label for="anuncioDescricao">Descrição do anúncio</label><textarea id="anuncioDescricao" rows="4" placeholder="Descreva o apartamento e suas características."></textarea><label for="anuncioFotos">Selecionar fotos do apartamento</label><input id="anuncioFotos" type="file" accept="image/*" multiple><div id="galeriaAnuncios" class="galeria-anuncios" aria-live="polite"></div><p class="anuncio-aviso">As fotos selecionadas ficam guardadas somente neste navegador, neste dispositivo. Não são enviadas ao Supabase nem anexadas automaticamente ao WhatsApp ou Facebook. Confira se o imóvel está realmente disponível antes de divulgar.</p><div class="actions"><button onclick="salvarRascunhoAnuncio()">Salvar rascunho</button><button onclick="compartilharAnuncioWhatsapp()">Compartilhar texto no WhatsApp</button><button class="secondary" onclick="copiarTextoAnuncio()">Copiar texto para Facebook</button></div><div id="statusAnuncio" role="status" class="muted"></div></div></section>
+<section class="card" style="grid-column:1/-1"><h2>Regimento do Condomínio</h2><p>Escolha um inquilino por vez para preparar o envio do regimento pelo WhatsApp.</p><button onclick="enviarRegimentoCondominio()">Escolher inquilino e enviar regimento</button><p class="muted" style="font-size:13px">O link do documento é temporário e expira em 1 hora. O WhatsApp abre para você conferir e confirmar o envio; nada é enviado automaticamente.</p></section>
 </div>
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
@@ -1291,6 +1292,49 @@ async function adicionarFotosAnuncio(evento){try{const arquivos=Array.from(event
 function iniciarAnuncios(){try{const salvo=JSON.parse(localStorage.getItem(ANUNCIO_CHAVE)||"null");if(salvo){document.getElementById("anuncioUnidade").value=salvo.unidade||"";document.getElementById("anuncioValor").value=salvo.valor||"";document.getElementById("anuncioDescricao").value=salvo.descricao||"";}}catch(e){}document.getElementById("anuncioFotos").addEventListener("change",adicionarFotosAnuncio);carregarFotosAnuncio();}
 document.addEventListener("DOMContentLoaded",iniciarAnuncios);
 
+
+// Regimento privado do condomínio: seleção individual, acesso temporário e confirmação manual no WhatsApp.
+async function enviarRegimentoCondominio(){
+ try{
+  const user=await usuarioAdministrador();
+  const [contratos,imoveis,inquilinos]=await Promise.all([
+   db.from("leases").select("id,property_id,tenant_id").eq("owner_id",user.id).eq("active",true),
+   db.from("properties").select("id,name").eq("owner_id",user.id),
+   db.from("tenants").select("id,full_name,phone").eq("owner_id",user.id)
+  ]);
+  for(const resultado of [contratos,imoveis,inquilinos])if(resultado.error)throw resultado.error;
+  const mapaImoveis=new Map((imoveis.data||[]).map(x=>[x.id,x.name]));
+  const mapaInquilinos=new Map((inquilinos.data||[]).map(x=>[x.id,x]));
+  const opcoes=(contratos.data||[]).map(c=>({contrato:c,inquilino:mapaInquilinos.get(c.tenant_id),imovel:mapaImoveis.get(c.property_id)||"Imóvel"})).filter(x=>x.inquilino);
+  if(!opcoes.length)throw new Error("Não há contratos ativos com inquilinos cadastrados.");
+  opcoes.sort((a,b)=>a.inquilino.full_name.localeCompare(b.inquilino.full_name,"pt-BR"));
+  const resposta=prompt("Escolha UM inquilino para enviar o regimento:\n"+opcoes.map((x,i)=>`${i+1}. ${x.inquilino.full_name} — ${x.imovel}`).join("\n")+"\n\nDigite o número:");
+  if(resposta===null)return;
+  const numero=Number(resposta.trim());
+  if(!Number.isInteger(numero)||numero<1||numero>opcoes.length)throw new Error("Escolha um número válido da lista.");
+  const escolhido=opcoes[numero-1];
+  const telefone=telefoneWhatsapp(escolhido.inquilino.phone);
+  if(!telefone)throw new Error("Confira o telefone com DDD deste inquilino no cadastro.");
+  const {data:arquivos,error:erroArquivos}=await db.storage.from("regimento-condominio").list("",{limit:100});
+  if(erroArquivos)throw new Error("Não foi possível consultar o regimento: "+erroArquivos.message);
+  const documentos=(arquivos||[]).filter(f=>f.name&&!f.id?.startsWith("folder")&&/\.(pdf|docx?|odt)$/i.test(f.name));
+  if(!documentos.length)throw new Error("Nenhum PDF ou documento do regimento foi encontrado no bucket regimento-condominio.");
+  let arquivo=documentos[0];
+  if(documentos.length>1){
+   const escolha=prompt("Escolha o documento:\n"+documentos.map((f,i)=>`${i+1}. ${f.name}`).join("\n"));
+   if(escolha===null)return;
+   const n=Number(escolha.trim());
+   if(!Number.isInteger(n)||n<1||n>documentos.length)throw new Error("Documento inválido.");
+   arquivo=documentos[n-1];
+  }
+  if(!confirm(`Preparar envio do documento "${arquivo.name}" para ${escolhido.inquilino.full_name} (${escolhido.imovel})?`))return;
+  const {data:link,error:erroLink}=await db.storage.from("regimento-condominio").createSignedUrl(arquivo.name,3600);
+  if(erroLink||!link?.signedUrl)throw new Error("Não foi possível criar o link temporário: "+(erroLink?.message||"erro desconhecido"));
+  const mensagem=`Olá, ${escolhido.inquilino.full_name}! Segue o Regimento Interno do Condomínio Residencial 12 Tribos, para sua leitura e consulta.\n\nDocumento: ${arquivo.name}\nLink para acesso (válido por 1 hora): ${link.signedUrl}\n\nAtenciosamente,\nAdministração de Bens Flores Crisanto.`;
+  const aba=window.open("https://wa.me/"+telefone+"?text="+encodeURIComponent(mensagem),"_blank","noopener,noreferrer");
+  if(!aba)alert("Permita janelas pop-up no Safari e tente novamente. O WhatsApp não enviou a mensagem automaticamente.");
+ }catch(e){alert("Não foi possível preparar o regimento: "+(e.message||e));}
+}
 </script>
 </body>
 </html>
