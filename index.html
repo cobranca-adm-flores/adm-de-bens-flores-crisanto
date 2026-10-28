@@ -71,7 +71,7 @@ footer{text-align:center;margin:30px;color:#666}
 <button onclick="carregarInquilinos()">
   Ver inquilinos cadastrados
 </button></section>
-<section class="card"><h2>Contratos de aluguel</h2><p>Contratos vinculados a imóveis e inquilinos</p><button onclick="carregarContratos()">Ver contratos</button> <button onclick="cadastrarContrato()">+ Cadastrar contrato</button><div id="listaContratos" aria-live="polite"></div></section>
+<section class="card"><h2>Contratos de aluguel</h2><p>Contratos vinculados a imóveis e inquilinos</p><button onclick="carregarContratos()">Ver contratos</button> <button onclick="cadastrarContrato()">+ Cadastrar contrato</button> <button onclick="enviarWhatsappContrato()">Enviar pelo WhatsApp</button><div id="listaContratos" aria-live="polite"></div></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos" aria-live="polite"></div></section>
 <section class="card"><h2>Contas de Luz</h2><p>Cadastre a luz no dia 1º, prepare a cobrança no dia 5 e envie pelo WhatsApp. Vencimento dia 10.</p><button onclick="carregarContasLuz()">Ver contas de luz</button> <button onclick="cadastrarContaLuz()">+ Cadastrar luz</button><div id="listaContasLuz" aria-live="polite"></div></section>
 <section class="card"><h2>Recebimentos</h2><p>Confirmar uma cobrança existente</p><button onclick="registrarPagamento()">+ Registrar pagamento</button></section>
@@ -797,6 +797,39 @@ async function carregarContratos() {
     });
   } catch(erro){lista.textContent="Erro ao consultar contratos: "+(erro.message||erro);}
 }
+// Abre uma conversa com o inquilino selecionado, sem enviar mensagem automaticamente.
+async function enviarWhatsappContrato() {
+  try {
+    const user = await usuarioAdministrador();
+    const {data: contratos, error: erroContratos} = await db.from("leases")
+      .select("id,property_id,tenant_id").eq("owner_id", user.id).eq("active", true);
+    if (erroContratos) throw erroContratos;
+    if (!contratos?.length) throw new Error("Nenhum contrato ativo encontrado.");
+    const [imoveis, inquilinos] = await Promise.all([
+      db.from("properties").select("id,name").eq("owner_id", user.id),
+      db.from("tenants").select("id,full_name,phone").eq("owner_id", user.id)
+    ]);
+    if (imoveis.error) throw imoveis.error;
+    if (inquilinos.error) throw inquilinos.error;
+    const mapaImoveis = new Map((imoveis.data || []).map(x => [x.id, x.name]));
+    const mapaInquilinos = new Map((inquilinos.data || []).map(x => [x.id, x]));
+    const opcoes = contratos.map((c, i) => `${i + 1}. ${mapaImoveis.get(c.property_id) || "Imóvel"} — ${mapaInquilinos.get(c.tenant_id)?.full_name || "Inquilino"}`);
+    const escolha = prompt("Escolha o contrato para abrir o WhatsApp:\n" + opcoes.join("\n") + "\nDigite o número:");
+    if (escolha === null) return;
+    const numero = Number(escolha.trim());
+    if (!Number.isInteger(numero) || numero < 1 || numero > contratos.length) throw new Error("Escolha um número válido.");
+    const inquilino = mapaInquilinos.get(contratos[numero - 1].tenant_id);
+    const telefone = telefoneWhatsapp(inquilino?.phone);
+    if (!telefone) throw new Error("Confira o telefone do inquilino: informe DDD e número brasileiro.");
+    const mensagem = `Olá, ${inquilino.full_name}! Tudo bem?`;
+    const url = "https://wa.me/" + telefone + "?text=" + encodeURIComponent(mensagem);
+    const aba = window.open(url, "_blank", "noopener,noreferrer");
+    if (!aba) alert("Se o WhatsApp não abrir, permita janelas pop-up para este aplicativo no Safari.");
+  } catch (erro) {
+    alert("Não foi possível abrir o WhatsApp: " + (erro.message || erro));
+  }
+}
+
 async function cadastrarContrato() {
   try {
     const user=await usuarioAdministrador();
