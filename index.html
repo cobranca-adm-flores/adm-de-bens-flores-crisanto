@@ -602,7 +602,7 @@ async function carregarPagamentos() {
 
     const { data, error } = await db
       .from("rent_charges")
-      .select("id, description, amount, due_date, status")
+      .select("id, lease_id, description, amount, due_date, status")
       .eq("owner_id", user.id)
       .order("due_date", { ascending: false });
 
@@ -615,20 +615,27 @@ async function carregarPagamentos() {
       return;
     }
 
-    const hoje = new Date().toLocaleDateString("en-CA", {
-      timeZone: "America/Sao_Paulo"
-    });
+    const hoje = hojeISO();
 
     data.forEach(cobranca => {
       const item=document.createElement("div");item.className="payment-row";
       const texto=document.createElement("span");
       const situacao=cobranca.status==="cancelled"?"CANCELADO":cobranca.status==="paid"?"PAGO":cobranca.due_date<hoje?"ATRASADO":"PENDENTE";
-      texto.textContent=`${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}`;
+      const encargos = calcularEncargos(cobranca, hoje);
+       texto.textContent=`${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}` +
+         (encargos.dias ? ` — ${encargos.dias} dia(s) de atraso | multa: ${reais(encargos.multa)} | juros: ${reais(encargos.juros)} | total atualizado: ${reais(encargos.total)}` : "");
       item.appendChild(texto);
       if(cobranca.status!=="paid" && cobranca.status!=="cancelled"){
         const botao=document.createElement("button");botao.textContent="Confirmar recebimento";
         botao.onclick=()=>registrarPagamentoPorId(cobranca.id);
         item.appendChild(botao);
+      }
+      if (encargos.dias >= 30 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
+        const carta=document.createElement("button");
+        carta.className="secondary";
+        carta.textContent="Gerar notificação (30+ dias)";
+        carta.onclick=()=>gerarNotificacaoAtraso(cobranca);
+        item.appendChild(carta);
       }
       lista.appendChild(item);
     });
@@ -638,6 +645,33 @@ async function carregarPagamentos() {
   }
 }
 
+
+
+// Minuta para revisão humana; não envia nem executa despejo automaticamente.
+async function gerarNotificacaoAtraso(cobranca) {
+  try {
+    const user=await usuarioAdministrador();
+    const calculo=calcularEncargos(cobranca);
+    if(calculo.dias<30 || !cobranca.lease_id) throw new Error("Notificação disponível somente após 30 dias de atraso em aluguel vinculado a contrato.");
+    const {data:contrato,error:ec}=await db.from("leases").select("property_id,tenant_id").eq("id",cobranca.lease_id).eq("owner_id",user.id).single();
+    if(ec)throw ec;
+    const [imovel,inquilino]=await Promise.all([
+      db.from("properties").select("name,address").eq("id",contrato.property_id).eq("owner_id",user.id).single(),
+      db.from("tenants").select("full_name").eq("id",contrato.tenant_id).eq("owner_id",user.id).single()
+    ]);
+    if(imovel.error)throw imovel.error;
+    if(inquilino.error)throw inquilino.error;
+    const nome=inquilino.data.full_name;
+    const endereco=imovel.data.address||"Endereço a preencher";
+    const imovelNome=imovel.data.name;
+    const texto=`NOTIFICAÇÃO EXTRAJUDICIAL DE COBRANÇA DE ALUGUEL EM ATRASO\n\nData: ${dataBR(hojeISO())}\n\nAo(À) Sr.(a) ${nome}\nImóvel: ${imovelNome}\nEndereço: ${endereco}\n\nPrezado(a) Senhor(a),\n\nConsta pendente o pagamento referente a ${cobranca.description}, com vencimento em ${dataBR(cobranca.due_date)}, há ${calculo.dias} dias.\n\nAluguel original: ${reais(calculo.principal)}\nMulta contratual (10%): ${reais(calculo.multa)}\nJuros simples (1% ao mês, proporcional): ${reais(calculo.juros)}\nTotal estimado em ${dataBR(hojeISO())}: ${reais(calculo.total)}\n\nSolicitamos contato para conferência dos valores e regularização da pendência. Os encargos dependem da previsão contratual e da legislação aplicável. Na ausência de solução, poderão ser avaliadas as medidas judiciais cabíveis, inclusive ação de despejo por falta de pagamento, nos termos da Lei nº 8.245/1991. Esta notificação não constitui ordem de desocupação.\n\nAtenciosamente,\nAdministração de Bens Flores Crisanto\n\n[Revisar dados, contrato, valores e forma de entrega antes de utilizar.]`;
+    const janela=window.open("", "_blank");
+    if(!janela){alert("Permita janelas pop-up no Safari para visualizar a carta.");return;}
+    const escapar=t=>String(t).replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    janela.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Notificação extrajudicial</title><style>body{font:16px/1.6 Arial,sans-serif;max-width:780px;margin:40px auto;padding:20px}pre{white-space:pre-wrap;font:inherit}button{padding:10px 20px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Imprimir / Salvar em PDF</button><pre>'+escapar(texto)+'</pre></body></html>');
+    janela.document.close();
+  }catch(e){alert("Não foi possível gerar a notificação: "+(e.message||e));}
+}
 
 async function carregarRelatorios() {
   const { data: nivelAcesso, error: erroAcesso } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -706,6 +740,7 @@ for(const [rotulo,valor] of [["Recebido",recebido],["Pendente",pendente],["Atras
   bloco.append(titulo,numero);grade.appendChild(bloco);
 }
 resumo.appendChild(grade);
+const aviso=document.createElement("p");aviso.className="muted";aviso.textContent="Resumo por valor original das cobranças. Multa e juros são exibidos em Pagamentos; o valor efetivamente recebido é registrado separadamente.";resumo.appendChild(aviso);
 
   } catch (erro) {
     alert("Erro no relatório: " + erro.message);
@@ -732,14 +767,19 @@ async function registrarPagamentoPorId(id){
   try{
     const user=await usuarioAdministrador();
     const {data:c,error}=await db.from("rent_charges")
-      .select("id,description,amount,status").eq("id",id).eq("owner_id",user.id).single();
+      .select("id,description,amount,due_date,status").eq("id",id).eq("owner_id",user.id).single();
     if(error)throw error;
     if(c.status!=="pending")throw new Error("Esta cobrança não está pendente.");
-    if(!confirm(`Confirmar recebimento de ${c.description}, no valor de ${reais(c.amount)}?`))return;
+    const calculo = calcularEncargos(c);
+     const valorTexto = prompt(`Recebimento de ${c.description}\nPrincipal: ${reais(calculo.principal)}\nMulta: ${reais(calculo.multa)}\nJuros: ${reais(calculo.juros)}\nTotal calculado: ${reais(calculo.total)}\n\nInforme o valor REALMENTE recebido (ex.: 1103,33):`, calculo.total.toFixed(2).replace(".", ","));
+     if (valorTexto === null) return;
+     const valorRecebido = parseValorBR(valorTexto);
+     if (!Number.isFinite(valorRecebido) || valorRecebido <= 0) throw new Error("Valor recebido inválido.");
+     if (!confirm(`Confirmar recebimento de ${c.description}, no valor efetivamente recebido de ${reais(valorRecebido)}?\nConfira o extrato antes de confirmar.`))return;
     // Primeiro registra o comprovante contábil; em caso de falha na etapa seguinte,
     // não repete a inserção automaticamente para evitar pagamentos duplicados.
     const {error:erroPagamento}=await db.from("payments").insert({
-      owner_id:user.id,charge_id:c.id,paid_at:hojeISO(),amount:Number(c.amount)
+      owner_id:user.id,charge_id:c.id,paid_at:hojeISO(),amount:valorRecebido
     });
     if(erroPagamento)throw erroPagamento;
     const {data:atualizada,error:erroStatus}=await db.from("rent_charges")
@@ -761,6 +801,24 @@ async function usuarioAdministrador() {
   const { data, error } = await db.auth.getUser();
   if (error || !data?.user) throw new Error("Sessão expirada. Entre novamente.");
   return data.user;
+}
+
+// Encargos configurados para cobranças de aluguel vencidas (não para energia).
+const MULTA_ATRASO_PERCENTUAL = 10;
+const JUROS_MENSAL_PERCENTUAL = 1;
+function calcularEncargos(cobranca, dataCalculo = hojeISO()) {
+  const principal = Number(cobranca.amount);
+  if (!Number.isFinite(principal) || principal < 0) throw new Error("Valor de cobrança inválido.");
+  const aluguel = !String(cobranca.description || "").startsWith("ENERGIA ELETRICA | ");
+  const vencimento = String(cobranca.due_date || "").slice(0, 10);
+  if (!aluguel || cobranca.status === "paid" || cobranca.status === "cancelled" || !validarDataISO(vencimento) || dataCalculo <= vencimento) {
+    return {principal, dias:0, multa:0, juros:0, total:principal};
+  }
+  const dias = Math.max(0, Math.round((Date.parse(dataCalculo + "T12:00:00Z") - Date.parse(vencimento + "T12:00:00Z")) / 86400000));
+  // Arredondamento em centavos; juros simples proporcionais a mês comercial de 30 dias.
+  const multa = Math.round(principal * MULTA_ATRASO_PERCENTUAL) / 100;
+  const juros = Math.round(principal * JUROS_MENSAL_PERCENTUAL * dias / 30) / 100;
+  return {principal, dias, multa, juros, total:Math.round((principal + multa + juros)*100)/100};
 }
 const reais = valor => Number(valor).toLocaleString("pt-BR", {style:"currency", currency:"BRL"});
 const dataBR = data => data ? String(data).slice(0,10).split("-").reverse().join("/") : "Sem data";
