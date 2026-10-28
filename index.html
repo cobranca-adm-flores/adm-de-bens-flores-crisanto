@@ -602,7 +602,7 @@ async function carregarPagamentos() {
 
     const { data, error } = await db
       .from("rent_charges")
-      .select("id, lease_id, description, amount, due_date, status")
+      .select("id, lease_id, reference_month, description, amount, due_date, status")
       .eq("owner_id", user.id)
       .order("due_date", { ascending: false });
 
@@ -617,15 +617,70 @@ async function carregarPagamentos() {
 
     const hoje = hojeISO();
 
-    data.forEach(cobranca => {
+    // Totais apenas das cobranças em aberto, sem duplicar aluguel e energia.
+    const emAberto = data.filter(c => c.status !== "paid" && c.status !== "cancelled");
+    const totalPrincipal = emAberto.reduce((s,c) => s + Number(c.amount || 0), 0);
+    const totalAtualizado = emAberto.reduce((s,c) => s + calcularEncargos(c, hoje).total, 0);
+    const resumoAberto = document.createElement("div");
+    resumoAberto.className = "statusbar";
+    resumoAberto.textContent = `Em aberto (aluguel + luz): ${reais(totalPrincipal)} | Total estimado com encargos: ${reais(totalAtualizado)}. Confira os contratos antes de cobrar.`;
+    lista.appendChild(resumoAberto);
+    // Agrupa apenas aluguel e energia do mesmo contrato e mês de referência.
+    const grupos = new Map();
+    const chaveDe = c => c.lease_id && c.reference_month ? `${c.lease_id}|${String(c.reference_month).slice(0,7)}` : `individual|${c.id}`;
+    for (const c of data) {
+      const chave = chaveDe(c);
+      if (!grupos.has(chave)) grupos.set(chave, []);
+      grupos.get(chave).push(c);
+    }
+    const agrupados = new Set();
+    for (const grupo of grupos.values()) {
+      const aluguel = grupo.filter(c => !String(c.description || "").startsWith("ENERGIA ELETRICA | "));
+      const luz = grupo.filter(c => String(c.description || "").startsWith("ENERGIA ELETRICA | "));
+      if (aluguel.length !== 1 || luz.length !== 1) continue;
+      const a = aluguel[0], l = luz[0];
+      agrupados.add(a.id); agrupados.add(l.id);
+      const item = document.createElement("div"); item.className = "item-row";
+      const titulo = document.createElement("strong");
+      titulo.textContent = `ALUGUEL + LUZ — ${a.description} — referência ${String(a.reference_month).slice(0,7)}`;
+      item.appendChild(titulo);
+      for (const c of [a,l]) {
+        const calc = calcularEncargos(c,hoje);
+        const linha = document.createElement("div");
+        const situacao = c.status === "paid" ? "PAGO" : c.status === "cancelled" ? "CANCELADO" : c.due_date < hoje ? "ATRASADO" : "PENDENTE";
+        linha.textContent = `${c===a?"Aluguel":"Luz"}: ${reais(c.amount)} | vencimento ${dataBR(c.due_date)} | ${situacao} | multa ${reais(calc.multa)} | juros ${reais(calc.juros)} | atualizado ${reais(calc.total)}`;
+        item.appendChild(linha);
+      }
+      const abertas = [a,l].filter(c => c.status === "pending");
+      const total = abertas.reduce((n,c) => n + calcularEncargos(c,hoje).total,0);
+      const resumo = document.createElement("strong");
+      resumo.textContent = `Total a receber: ${reais(total)}`;
+      item.appendChild(resumo);
+      if (abertas.length) {
+        const botao = document.createElement("button");
+        botao.textContent = "Confirmar pagamento de aluguel + luz";
+        botao.onclick = () => registrarPagamentoConjunto(a.id,l.id);
+        item.appendChild(botao);
+      }
+      // Mantém os avisos do aluguel no agrupamento.
+      const encargos = calcularEncargos(a,hoje);
+      if (a.status === "pending" && encargos.dias >= 15) {
+        const aviso = document.createElement("button"); aviso.className="secondary";
+        aviso.textContent = encargos.dias >= 30 ? "Gerar notificação (30+ dias)" : "Preparar aviso (15+ dias)";
+        aviso.onclick = () => encargos.dias >= 30 ? gerarNotificacaoAtraso(a) : prepararAviso15Dias(a);
+        item.appendChild(aviso);
+      }
+      lista.appendChild(item);
+    }
+    data.filter(c => !agrupados.has(c.id)).forEach(cobranca => {
       const item=document.createElement("div");item.className="payment-row";
       const texto=document.createElement("span");
       const situacao=cobranca.status==="cancelled"?"CANCELADO":cobranca.status==="paid"?"PAGO":cobranca.due_date<hoje?"ATRASADO":"PENDENTE";
       const encargos = calcularEncargos(cobranca, hoje);
-       texto.textContent=`${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}` +
+       texto.textContent=`${String(cobranca.description || "").startsWith("ENERGIA ELETRICA | ") ? "LUZ | " : "ALUGUEL/COBRANÇA | "}${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}` +
          (encargos.dias ? ` — ${encargos.dias} dia(s) de atraso | multa: ${reais(encargos.multa)} | juros: ${reais(encargos.juros)} | total atualizado: ${reais(encargos.total)}` : "");
        item.appendChild(texto);
-       if (encargos.dias >= 15 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
+       if (!String(cobranca.description || "").startsWith("ENERGIA ELETRICA | ") && encargos.dias >= 15 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
          const aviso = document.createElement("strong");
          aviso.textContent = encargos.dias >= 30 ? "AVISO: 30 dias ou mais de atraso" : "AVISO: 15 dias ou mais de atraso";
          aviso.style.cssText = "display:block;color:#9a3412;background:#ffedd5;padding:8px;border-radius:6px;margin:6px 0";
@@ -643,7 +698,7 @@ async function carregarPagamentos() {
         botao.onclick=()=>registrarPagamentoPorId(cobranca.id);
         item.appendChild(botao);
       }
-      if (encargos.dias >= 30 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
+      if (!String(cobranca.description || "").startsWith("ENERGIA ELETRICA | ") && encargos.dias >= 30 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
         const carta=document.createElement("button");
         carta.className="secondary";
         carta.textContent="Gerar notificação (30+ dias)";
@@ -802,6 +857,36 @@ async function registrarPagamento(){
     await registrarPagamentoPorId(data[numero-1].id);
   }catch(e){alert("Erro ao selecionar pagamento: "+e.message);}
 }
+// Um clique para dois recebimentos; cada parcela permanece identificada no banco.
+// Sem transação SQL disponível: se uma etapa falhar, interrompe e orienta conferência.
+async function registrarPagamentoConjunto(aluguelId,luzId){
+  try {
+    const user=await usuarioAdministrador();
+    const {data,error}=await db.from("rent_charges")
+      .select("id,description,amount,due_date,status,lease_id,reference_month")
+      .eq("owner_id",user.id).in("id",[aluguelId,luzId]);
+    if(error)throw error;
+    if(data?.length!==2 || data[0].lease_id!==data[1].lease_id || String(data[0].reference_month).slice(0,7)!==String(data[1].reference_month).slice(0,7)) throw new Error("Não foi possível confirmar o par aluguel/luz.");
+    const pendentes=data.filter(c=>c.status==="pending");
+    if(!pendentes.length){alert("Aluguel e luz já estão pagos ou cancelados.");return;}
+    const valores=pendentes.map(c=>({...c,calculo:calcularEncargos(c)}));
+    const total=valores.reduce((s,c)=>s+c.calculo.total,0);
+    const valorTexto=prompt(`Recebimento conjunto (aluguel + luz)\n${valores.map(c=>`${c.description}: ${reais(c.calculo.total)}`).join("\n")}\nTotal estimado: ${reais(total)}\n\nDigite o valor TOTAL realmente recebido:`,total.toFixed(2).replace(".",","));
+    if(valorTexto===null)return;
+    const recebido=parseValorBR(valorTexto);
+    if(!Number.isFinite(recebido)||recebido<=0)throw new Error("Valor inválido.");
+    if(Math.abs(recebido-total)>0.009){alert("O valor recebido é diferente do total. Para evitar rateio incorreto ou baixa de dívida não quitada, registre os pagamentos separadamente ou confira os valores antes.");return;}
+    if(!confirm(`Confirmar recebimento conjunto de ${reais(recebido)}? Serão registradas ${pendentes.length} cobranças separadas. Confira o extrato.`))return;
+    for(const c of valores){
+      const {error:ep}=await db.from("payments").insert({owner_id:user.id,charge_id:c.id,paid_at:hojeISO(),amount:c.calculo.total});
+      if(ep)throw new Error(`Falha ao registrar ${c.description}. Confira no Supabase antes de tentar novamente: ${ep.message}`);
+      const {data:atualizada,error:es}=await db.from("rent_charges").update({status:"paid"}).eq("id",c.id).eq("owner_id",user.id).eq("status","pending").select("id");
+      if(es||!atualizada?.length)throw new Error(`Pagamento de ${c.description} gravado, mas baixa não confirmada. NÃO repita; confira no Supabase. ${es?.message||""}`);
+    }
+    alert("Recebimento conjunto registrado com sucesso!");
+    await carregarPagamentos();await carregarRelatorios();
+  }catch(e){alert("ATENÇÃO: "+(e.message||e)+" Se houve gravação parcial, NÃO repita o pagamento antes de conferir no Supabase.");}
+}
 async function registrarPagamentoPorId(id){
   try{
     const user=await usuarioAdministrador();
@@ -842,15 +927,14 @@ async function usuarioAdministrador() {
   return data.user;
 }
 
-// Encargos configurados para cobranças de aluguel vencidas (não para energia).
+// Encargos estimados para aluguel e energia vencidos; confirmar previsão contratual antes de cobrar.
 const MULTA_ATRASO_PERCENTUAL = 10;
 const JUROS_MENSAL_PERCENTUAL = 1;
 function calcularEncargos(cobranca, dataCalculo = hojeISO()) {
   const principal = Number(cobranca.amount);
   if (!Number.isFinite(principal) || principal < 0) throw new Error("Valor de cobrança inválido.");
-  const aluguel = !String(cobranca.description || "").startsWith("ENERGIA ELETRICA | ");
   const vencimento = String(cobranca.due_date || "").slice(0, 10);
-  if (!aluguel || cobranca.status === "paid" || cobranca.status === "cancelled" || !validarDataISO(vencimento) || dataCalculo <= vencimento) {
+  if (cobranca.status === "paid" || cobranca.status === "cancelled" || !validarDataISO(vencimento) || dataCalculo <= vencimento) {
     return {principal, dias:0, multa:0, juros:0, total:principal};
   }
   const dias = Math.max(0, Math.round((Date.parse(dataCalculo + "T12:00:00Z") - Date.parse(vencimento + "T12:00:00Z")) / 86400000));
