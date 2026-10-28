@@ -43,6 +43,8 @@ footer{text-align:center;margin:30px;color:#666}
 @media(max-width:680px){.grid{grid-template-columns:1fr}main{margin:10px auto}.card{padding:18px}button{margin:3px 2px}}
 #listaContratos{margin-top:12px;line-height:1.7;overflow-wrap:anywhere}
 #listaContratos .contrato{padding:10px 0;border-bottom:1px solid #ddd}
+
+.anuncio-form{display:grid;gap:10px;margin-top:12px}.anuncio-form input,.anuncio-form textarea,.anuncio-form select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}.anuncio-form label{font-weight:bold;font-size:14px}.galeria-anuncios{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:9px;margin:12px 0}.foto-anuncio{width:100%;height:110px;object-fit:cover;border-radius:7px}.foto-cartao{position:relative}.foto-cartao button{font-size:12px;padding:5px;margin:3px}.anuncio-aviso{background:#f1f5f9;padding:10px;border-radius:7px;font-size:13px}
 </style>
  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -79,6 +81,7 @@ footer{text-align:center;margin:30px;color:#666}
  <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
 <div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
 </section>
+<section class="card" style="grid-column:1/-1"><h2>Anúncios de apartamentos</h2><p>Prepare anúncios de unidades disponíveis, com fotos, valor e contato. Nenhum anúncio é publicado automaticamente.</p><div class="anuncio-form"><label for="anuncioUnidade">Apartamento / unidade</label><input id="anuncioUnidade" placeholder="Ex.: Apartamento 102" maxlength="100"><label for="anuncioValor">Aluguel mensal (R$)</label><input id="anuncioValor" inputmode="decimal" placeholder="Ex.: 1600,00"><label for="anuncioDescricao">Descrição do anúncio</label><textarea id="anuncioDescricao" rows="4" placeholder="Descreva o apartamento e suas características."></textarea><label for="anuncioFotos">Selecionar fotos do apartamento</label><input id="anuncioFotos" type="file" accept="image/*" multiple><div id="galeriaAnuncios" class="galeria-anuncios" aria-live="polite"></div><p class="anuncio-aviso">As fotos selecionadas ficam guardadas somente neste navegador, neste dispositivo. Não são enviadas ao Supabase nem anexadas automaticamente ao WhatsApp ou Facebook. Confira se o imóvel está realmente disponível antes de divulgar.</p><div class="actions"><button onclick="salvarRascunhoAnuncio()">Salvar rascunho</button><button onclick="compartilharAnuncioWhatsapp()">Compartilhar texto no WhatsApp</button><button class="secondary" onclick="copiarTextoAnuncio()">Copiar texto para Facebook</button></div><div id="statusAnuncio" role="status" class="muted"></div></div></section>
 </div>
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
@@ -1260,6 +1263,33 @@ async function carregarRecibos(){
   }
  }catch(e){lista.textContent="Erro ao consultar recibos: "+(e.message||e);}
 }
+
+
+// Anúncios são rascunhos locais; nenhuma unidade é publicada ou marcada vaga automaticamente.
+const ANUNCIO_CHAVE="adm_flores_rascunho_anuncio_v1";
+let fotosAnuncio=[];
+function statusAnuncio(msg){document.getElementById("statusAnuncio").textContent=msg;}
+function textoAnuncio(){
+ const unidade=document.getElementById("anuncioUnidade").value.trim();
+ const valor=document.getElementById("anuncioValor").value.trim();
+ const descricao=document.getElementById("anuncioDescricao").value.trim();
+ if(!unidade||!valor||!descricao)throw new Error("Preencha unidade, aluguel e descrição.");
+ const numero=Number(valor.replace(/\./g,"").replace(",","."));
+ if(!Number.isFinite(numero)||numero<=0)throw new Error("Informe um valor de aluguel válido.");
+ return `APARTAMENTO PARA ALUGAR — RESIDENCIAL 12 TRIBOS\n\n${unidade}\nAluguel: ${reais(numero)} por mês\n\n${descricao}\n\nInformações: Nani — (47) 99681-3316\n\nConfirme disponibilidade e condições antes de fechar negócio.`;
+}
+function guardarCamposAnuncio(){
+ localStorage.setItem(ANUNCIO_CHAVE,JSON.stringify({unidade:document.getElementById("anuncioUnidade").value,valor:document.getElementById("anuncioValor").value,descricao:document.getElementById("anuncioDescricao").value}));
+}
+function salvarRascunhoAnuncio(){try{textoAnuncio();guardarCamposAnuncio();statusAnuncio("Texto do rascunho salvo neste navegador. Fotos são armazenadas separadamente neste dispositivo.");}catch(e){alert(e.message);}}
+async function copiarTextoAnuncio(){try{const texto=textoAnuncio();guardarCamposAnuncio();await navigator.clipboard.writeText(texto);statusAnuncio("Texto copiado. Cole no Facebook e anexe as fotos manualmente.");}catch(e){alert("Não foi possível copiar: "+e.message);}}
+function compartilharAnuncioWhatsapp(){try{const texto=textoAnuncio();guardarCamposAnuncio();const aba=window.open("https://wa.me/?text="+encodeURIComponent(texto),"_blank","noopener,noreferrer");if(!aba)alert("Permita pop-ups para abrir o WhatsApp. As fotos precisam ser anexadas manualmente.");}catch(e){alert(e.message);}}
+function abrirBancoFotos(){return new Promise((resolve,reject)=>{const r=indexedDB.open("adm_flores_anuncios_local",1);r.onupgradeneeded=()=>r.result.createObjectStore("fotos",{keyPath:"id",autoIncrement:true});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+async function fotosTransacao(modo,operacao){const dbLocal=await abrirBancoFotos();return new Promise((resolve,reject)=>{const tx=dbLocal.transaction("fotos",modo);const req=operacao(tx.objectStore("fotos"));req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);tx.oncomplete=()=>dbLocal.close();tx.onerror=()=>{dbLocal.close();reject(tx.error);};});}
+async function carregarFotosAnuncio(){try{fotosAnuncio=await fotosTransacao("readonly",s=>s.getAll());const galeria=document.getElementById("galeriaAnuncios");galeria.replaceChildren();for(const foto of fotosAnuncio){const card=document.createElement("div");card.className="foto-cartao";const img=document.createElement("img");img.className="foto-anuncio";img.alt=foto.nome||"Foto do apartamento";const url=URL.createObjectURL(foto.arquivo);img.src=url;img.onload=()=>URL.revokeObjectURL(url);const botao=document.createElement("button");botao.className="danger";botao.textContent="Remover";botao.onclick=async()=>{if(!confirm("Remover esta foto da galeria local?"))return;await fotosTransacao("readwrite",s=>s.delete(foto.id));await carregarFotosAnuncio();};card.append(img,botao);galeria.append(card);}statusAnuncio(`${fotosAnuncio.length} foto(s) guardada(s) neste navegador.`);}catch(e){statusAnuncio("Não foi possível carregar fotos locais: "+e.message);}}
+async function adicionarFotosAnuncio(evento){try{const arquivos=Array.from(evento.target.files||[]);if(arquivos.length+fotosAnuncio.length>30)throw new Error("Limite de 30 fotos por galeria local.");for(const arquivo of arquivos){if(!arquivo.type.startsWith("image/"))continue;if(arquivo.size>8*1024*1024)throw new Error("Cada foto deve ter até 8 MB: "+arquivo.name);await fotosTransacao("readwrite",s=>s.add({nome:arquivo.name,arquivo}));}await carregarFotosAnuncio();}catch(e){alert("Erro ao adicionar fotos: "+e.message);}finally{evento.target.value="";}}
+function iniciarAnuncios(){try{const salvo=JSON.parse(localStorage.getItem(ANUNCIO_CHAVE)||"null");if(salvo){document.getElementById("anuncioUnidade").value=salvo.unidade||"";document.getElementById("anuncioValor").value=salvo.valor||"";document.getElementById("anuncioDescricao").value=salvo.descricao||"";}}catch(e){}document.getElementById("anuncioFotos").addEventListener("change",adicionarFotosAnuncio);carregarFotosAnuncio();}
+document.addEventListener("DOMContentLoaded",iniciarAnuncios);
 
 </script>
 </body>
