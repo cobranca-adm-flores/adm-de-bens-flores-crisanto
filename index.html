@@ -73,6 +73,7 @@ footer{text-align:center;margin:30px;color:#666}
 </button></section>
 <section class="card"><h2>Contratos de aluguel</h2><p>Contratos vinculados a imóveis e inquilinos</p><button onclick="carregarContratos()">Ver contratos</button> <button onclick="cadastrarContrato()">+ Cadastrar contrato</button><div id="listaContratos" aria-live="polite"></div></section>
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos" aria-live="polite"></div></section>
+<section class="card"><h2>Contas de Luz</h2><p>Cadastre a luz no dia 1º, prepare a cobrança no dia 5 e envie pelo WhatsApp. Vencimento dia 10.</p><button onclick="carregarContasLuz()">Ver contas de luz</button> <button onclick="cadastrarContaLuz()">+ Cadastrar luz</button><div id="listaContasLuz" aria-live="polite"></div></section>
 <section class="card"><h2>Recebimentos</h2><p>Confirmar uma cobrança existente</p><button onclick="registrarPagamento()">+ Registrar pagamento</button></section>
  <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
 <div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
@@ -832,7 +833,7 @@ async function cadastrarContrato() {
 function nomes(valor){return String(valor||"").trim();}
 function hojeISO(){const p=new Intl.DateTimeFormat("en-GB",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const get=t=>p.find(x=>x.type===t).value;return `${get("year")}-${get("month")}-${get("day")}`;}
 function validarDataISO(data){if(!/^\d{4}-\d{2}-\d{2}$/.test(data))return false;const d=new Date(data+"T12:00:00Z");return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===data;}
-async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});await atualizarStatusAcesso();alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
+async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","listaContasLuz","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});await atualizarStatusAcesso();alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
 async function editarContrato(c){
  try{const user=await usuarioAdministrador();
  const inicio=prompt("Início (AAAA-MM-DD):",c.start_date);if(inicio===null)return;
@@ -899,6 +900,91 @@ async function exportarRelatorioCSV(){
   const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
   const a=document.createElement("a");a.href=url;a.download="relatorio-cobrancas-"+hoje+".csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
  }catch(e){alert("Erro ao exportar: "+(e.message||e));}
+}
+
+
+// Cobranças de energia são registradas separadamente na tabela existente.
+// O boleto bancário continua sendo emitido manualmente no Nubank PJ.
+const PREFIXO_LUZ = "ENERGIA ELETRICA | ";
+function mesAtualBR(){return hojeISO().slice(0,7);}
+function parseValorBR(texto){return Number(String(texto).trim().replace(/\./g,"").replace(",","."));}
+function telefoneWhatsapp(telefone){
+  const digitos=String(telefone||"").replace(/\D/g,"");
+  if(digitos.length===10||digitos.length===11)return "55"+digitos;
+  if((digitos.length===12||digitos.length===13)&&digitos.startsWith("55"))return digitos;
+  return null;
+}
+async function dadosContasLuz(){
+  const user=await usuarioAdministrador();
+  const [contratos,imoveis,inquilinos,cobrancas]=await Promise.all([
+    db.from("leases").select("id,property_id,tenant_id,monthly_rent,active").eq("owner_id",user.id).eq("active",true),
+    db.from("properties").select("id,name").eq("owner_id",user.id),
+    db.from("tenants").select("id,full_name,phone").eq("owner_id",user.id),
+    db.from("rent_charges").select("id,lease_id,description,amount,due_date,reference_month,status").eq("owner_id",user.id).like("description",PREFIXO_LUZ+"%")
+  ]);
+  for(const r of [contratos,imoveis,inquilinos,cobrancas])if(r.error)throw r.error;
+  const imap=new Map((imoveis.data||[]).map(x=>[x.id,x]));
+  const tmap=new Map((inquilinos.data||[]).map(x=>[x.id,x]));
+  return {user,contratos:(contratos.data||[]).map(c=>({...c,imovel:imap.get(c.property_id),inquilino:tmap.get(c.tenant_id)})),cobrancas:cobrancas.data||[]};
+}
+async function cadastrarContaLuz(){
+  try{
+    const {user,contratos,cobrancas}=await dadosContasLuz();
+    if(!contratos.length)throw new Error("Nenhum contrato ativo cadastrado.");
+    const opcoes=contratos.map((c,i)=>`${i+1}. ${c.imovel?.name||"Imóvel"} — ${c.inquilino?.full_name||"Inquilino"}`);
+    const escolha=prompt("Escolha o contrato para cobrar a luz:\n"+opcoes.join("\n"));
+    if(escolha===null)return;
+    const n=Number(escolha);
+    if(!Number.isInteger(n)||n<1||n>contratos.length)throw new Error("Escolha um número válido.");
+    const contrato=contratos[n-1];
+    const mes=prompt("Mês de referência da luz (AAAA-MM):",mesAtualBR());
+    if(mes===null)return;
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes))throw new Error("Mês inválido. Use AAAA-MM.");
+    const referencia=mes+"-01";
+    if(cobrancas.some(c=>c.lease_id===contrato.id&&c.reference_month===referencia&&c.status!=="cancelled"))throw new Error("Já existe uma conta de luz para esse contrato neste mês. Não foi criada outra cobrança.");
+    const valorTexto=prompt("Valor da luz (exemplo: 180,00):");
+    if(valorTexto===null)return;
+    const valor=parseValorBR(valorTexto);
+    if(!Number.isFinite(valor)||valor<=0)throw new Error("Digite um valor maior que zero.");
+    const vencimento=mes+"-10";
+    const descricao=PREFIXO_LUZ+mes+" | "+(contrato.imovel?.name||"Imóvel")+" | "+(contrato.inquilino?.full_name||"Inquilino");
+    if(!confirm(`Registrar luz de ${reais(valor)} para ${opcoes[n-1]}?\nVencimento: ${dataBR(vencimento)}\nAluguel do contrato: ${reais(contrato.monthly_rent)}\nTotal previsto: ${reais(Number(contrato.monthly_rent)+valor)}`))return;
+    const {error}=await db.from("rent_charges").insert({owner_id:user.id,lease_id:contrato.id,reference_month:referencia,description:descricao,amount:valor,due_date:vencimento,status:"pending"});
+    if(error)throw error;
+    alert("Conta de luz cadastrada. Emita o boleto no Nubank PJ com o total do aluguel e da luz.");
+    await carregarContasLuz();
+  }catch(e){alert("Não foi possível cadastrar a luz: "+(e.message||e));}
+}
+async function carregarContasLuz(){
+  const lista=document.getElementById("listaContasLuz");
+  lista.textContent="Carregando contas de luz...";
+  try{
+    const {contratos,cobrancas}=await dadosContasLuz();
+    lista.replaceChildren();
+    if(!contratos.length){lista.textContent="Nenhum contrato ativo.";return;}
+    const mes=mesAtualBR();
+    const titulo=document.createElement("p");titulo.textContent="Referência atual: "+mes+" | Boleto: emitir no Nubank PJ dia 5, vencimento dia 10.";lista.appendChild(titulo);
+    for(const c of contratos){
+      const item=document.createElement("div");item.className="item-row";
+      const luz=cobrancas.find(x=>x.lease_id===c.id&&x.reference_month===mes&&x.status!=="cancelled");
+      const nome=document.createElement("strong");nome.textContent=(c.imovel?.name||"Imóvel")+" — "+(c.inquilino?.full_name||"Inquilino");
+      const detalhe=document.createElement("div");
+      detalhe.textContent="Aluguel: "+reais(c.monthly_rent)+(luz?" | Luz: "+reais(luz.amount)+" | Total para boleto: "+reais(Number(c.monthly_rent)+Number(luz.amount))+" | Luz: "+(luz.status==="paid"?"paga":luz.due_date<hojeISO()?"atrasada":"pendente"):" | Luz ainda não cadastrada neste mês");
+      item.append(nome,detalhe);
+      if(luz){
+        const botao=document.createElement("button");botao.textContent="Enviar pelo WhatsApp";
+        botao.onclick=()=>{
+          const telefone=telefoneWhatsapp(c.inquilino?.phone);
+          if(!telefone){alert("Confira o telefone do inquilino no cadastro. É necessário DDD e número brasileiro.");return;}
+          const msg=`Olá, ${c.inquilino.full_name}! Cobrança de ${mes}: aluguel ${reais(c.monthly_rent)} + energia elétrica ${reais(luz.amount)} = total ${reais(Number(c.monthly_rent)+Number(luz.amount))}. Vencimento: 10/${mes.slice(5,7)}/${mes.slice(0,4)}. O boleto bancário será enviado separadamente. Obrigado!`;
+          window.open("https://wa.me/"+telefone+"?text="+encodeURIComponent(msg),"_blank","noopener,noreferrer");
+        };
+        item.appendChild(botao);
+      }
+      lista.appendChild(item);
+    }
+    const nota=document.createElement("p");nota.className="muted";nota.textContent="O botão abre uma mensagem no WhatsApp; ele não gera nem anexa o boleto do Nubank. Os valores da luz são cobranças separadas no financeiro.";lista.appendChild(nota);
+  }catch(e){lista.textContent="Erro ao carregar contas de luz: "+(e.message||e);}
 }
 
 </script>
