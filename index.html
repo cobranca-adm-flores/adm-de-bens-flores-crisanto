@@ -75,6 +75,7 @@ footer{text-align:center;margin:30px;color:#666}
 <section class="card"><h2>Pagamentos</h2><p>Recebidos, pendentes e atrasados</p><button onclick="carregarPagamentos()">Acessar</button> <button onclick="criarCobranca()">+ Nova cobrança</button><div id="listaPagamentos" aria-live="polite"></div></section>
 <section class="card"><h2>Contas de Luz</h2><p>Cadastre a luz no dia 1º, prepare a cobrança no dia 5 e envie pelo WhatsApp. Vencimento dia 10.</p><button onclick="carregarContasLuz()">Ver contas de luz</button> <button onclick="cadastrarContaLuz()">+ Cadastrar luz</button><div id="listaContasLuz" aria-live="polite"></div></section>
 <section class="card"><h2>Recebimentos</h2><p>Confirmar uma cobrança existente</p><button onclick="registrarPagamento()">+ Registrar pagamento</button></section>
+<section class="card"><h2>Recibos de pagamento</h2><p>Recibos dos pagamentos registrados, com opção de impressão, PDF e WhatsApp.</p><button onclick="carregarRecibos()">Ver recibos</button><div id="listaRecibos" aria-live="polite"></div></section>
  <section class="card"><h2>Relatórios</h2><p>Resumo financeiro</p><button onclick="carregarRelatorios()">Acessar</button>
 <div id="resumoFinanceiro" style="margin-top:20px;"></div><button class="secondary" onclick="exportarRelatorioCSV()">Exportar cobranças (CSV)</button>
 </section>
@@ -1047,7 +1048,7 @@ async function cadastrarContrato() {
 function nomes(valor){return String(valor||"").trim();}
 function hojeISO(){const p=new Intl.DateTimeFormat("en-GB",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const get=t=>p.find(x=>x.type===t).value;return `${get("year")}-${get("month")}-${get("day")}`;}
 function validarDataISO(data){if(!/^\d{4}-\d{2}-\d{2}$/.test(data))return false;const d=new Date(data+"T12:00:00Z");return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===data;}
-async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","listaContasLuz","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});await atualizarStatusAcesso();alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
+async function sairAdministrador(){try{const {error}=await db.auth.signOut();if(error)throw error;["listaImoveis","listaInquilinos","listaContratos","listaPagamentos","listaContasLuz","listaRecibos","resumoFinanceiro"].forEach(id=>{const el=document.getElementById(id);if(el)el.replaceChildren();});await atualizarStatusAcesso();alert("Sessão encerrada.");}catch(e){alert("Erro ao sair: "+e.message);}}
 async function editarContrato(c){
  try{const user=await usuarioAdministrador();
  const inicio=prompt("Início (AAAA-MM-DD):",c.start_date);if(inicio===null)return;
@@ -1199,6 +1200,65 @@ async function carregarContasLuz(){
     }
     const nota=document.createElement("p");nota.className="muted";nota.textContent="O botão abre uma mensagem no WhatsApp; ele não gera nem anexa o boleto do Nubank. Os valores da luz são cobranças separadas no financeiro.";lista.appendChild(nota);
   }catch(e){lista.textContent="Erro ao carregar contas de luz: "+(e.message||e);}
+}
+
+
+// Recibos usam pagamentos efetivamente registrados, nunca valores apenas previstos.
+async function carregarRecibos(){
+ const lista=document.getElementById("listaRecibos");lista.textContent="Carregando recibos...";
+ try{
+  const user=await usuarioAdministrador();
+  const [pag,charges,leases,props,tenants]=await Promise.all([
+   db.from("payments").select("id,charge_id,paid_at,amount").eq("owner_id",user.id).order("paid_at",{ascending:false}).limit(300),
+   db.from("rent_charges").select("id,lease_id,reference_month,description,amount,status").eq("owner_id",user.id),
+   db.from("leases").select("id,property_id,tenant_id").eq("owner_id",user.id),
+   db.from("properties").select("id,name").eq("owner_id",user.id),
+   db.from("tenants").select("id,full_name,phone").eq("owner_id",user.id)
+  ]);
+  for(const r of [pag,charges,leases,props,tenants])if(r.error)throw r.error;
+  const cm=new Map((charges.data||[]).map(x=>[x.id,x]));
+  const lm=new Map((leases.data||[]).map(x=>[x.id,x]));
+  const pm=new Map((props.data||[]).map(x=>[x.id,x]));
+  const tm=new Map((tenants.data||[]).map(x=>[x.id,x]));
+  lista.replaceChildren();
+  if(!pag.data?.length){lista.textContent="Nenhum pagamento registrado.";return;}
+  const grupos=new Map();
+  for(const p of pag.data){
+   const c=cm.get(p.charge_id);if(!c)continue;
+   const contrato=lm.get(c.lease_id);
+   const data=String(p.paid_at||"").slice(0,10);
+   // Combina aluguel e luz do mesmo contrato, mês e dia; não mistura contratos diferentes.
+   const chave=contrato&&c.reference_month?`${contrato.id}|${String(c.reference_month).slice(0,7)}|${data}`:`pagamento|${p.id}`;
+   if(!grupos.has(chave))grupos.set(chave,[]);
+   grupos.get(chave).push({p,c,contrato,data});
+  }
+  for(const itens of grupos.values()){
+   const primeiro=itens[0],contrato=primeiro.contrato;
+   const inquilino=contrato?tm.get(contrato.tenant_id):null;
+   const imovel=contrato?pm.get(contrato.property_id):null;
+   const total=itens.reduce((v,x)=>v+Number(x.p.amount||0),0);
+   const titulo=(imovel?.name||"Imóvel não identificado")+" — "+(inquilino?.full_name||"Inquilino não identificado");
+   const item=document.createElement("div");item.className="item-row";
+   const resumo=document.createElement("div");resumo.textContent=`${titulo} | ${dataBR(primeiro.data)} | ${reais(total)}`;
+   const detalhes=itens.map(x=>({tipo:String(x.c.description||"").startsWith(PREFIXO_LUZ)?"Luz":"Aluguel / outra cobrança",valor:Number(x.p.amount||0),descricao:x.c.description||"",id:x.p.id}));
+   const recibo=`RECIBO DE PAGAMENTO\nADM de Bens Flores Crisanto\n\nRecebido de: ${inquilino?.full_name||"Não identificado"}\nImóvel: ${imovel?.name||"Não identificado"}\nReferência: ${String(primeiro.c.reference_month||"").slice(0,7)||"Não informada"}\nData do pagamento: ${dataBR(primeiro.data)}\n\n${detalhes.map(x=>`${x.tipo}: ${reais(x.valor)}\n${x.descricao}`).join("\n\n")}\n\nTOTAL EFETIVAMENTE RECEBIDO: ${reais(total)}\n\nRegistros: ${detalhes.map(x=>x.id).join(", ")}\n\nObservação: valores efetivamente registrados; eventuais multa, juros ou descontos não são discriminados separadamente no cadastro do pagamento.\n\nAdministração de Bens Flores Crisanto`;
+   const imprimir=document.createElement("button");imprimir.textContent="Imprimir / Salvar PDF";
+   imprimir.onclick=()=>{
+    const janela=window.open("","_blank");if(!janela){alert("Permita janelas pop-up no Safari.");return;}
+    const pre=janela.document.createElement("pre");pre.textContent=recibo;pre.style.cssText="white-space:pre-wrap;font:16px/1.6 Arial,sans-serif;max-width:750px;margin:40px auto";
+    const btn=janela.document.createElement("button");btn.textContent="Imprimir / Salvar PDF";btn.onclick=()=>janela.print();
+    const style=janela.document.createElement("style");style.textContent="@media print{button{display:none}}";
+    janela.document.head.appendChild(style);janela.document.body.append(btn,pre);
+   };
+   const whats=document.createElement("button");whats.className="secondary";whats.textContent="Enviar texto pelo WhatsApp";
+   whats.onclick=()=>{
+    const tel=telefoneWhatsapp(inquilino?.phone);if(!tel){alert("Confira o telefone do inquilino com DDD.");return;}
+    const url="https://wa.me/"+tel+"?text="+encodeURIComponent(recibo);
+    const aba=window.open(url,"_blank","noopener,noreferrer");if(!aba)alert("Permita janelas pop-up no Safari.");
+   };
+   item.append(resumo,imprimir,whats);lista.appendChild(item);
+  }
+ }catch(e){lista.textContent="Erro ao consultar recibos: "+(e.message||e);}
 }
 
 </script>
