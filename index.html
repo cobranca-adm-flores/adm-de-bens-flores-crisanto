@@ -624,7 +624,20 @@ async function carregarPagamentos() {
       const encargos = calcularEncargos(cobranca, hoje);
        texto.textContent=`${cobranca.description} — ${reais(cobranca.amount)} — vencimento ${dataBR(cobranca.due_date)} — ${situacao}` +
          (encargos.dias ? ` — ${encargos.dias} dia(s) de atraso | multa: ${reais(encargos.multa)} | juros: ${reais(encargos.juros)} | total atualizado: ${reais(encargos.total)}` : "");
-      item.appendChild(texto);
+       item.appendChild(texto);
+       if (encargos.dias >= 15 && cobranca.lease_id && cobranca.status !== "paid" && cobranca.status !== "cancelled") {
+         const aviso = document.createElement("strong");
+         aviso.textContent = encargos.dias >= 30 ? "AVISO: 30 dias ou mais de atraso" : "AVISO: 15 dias ou mais de atraso";
+         aviso.style.cssText = "display:block;color:#9a3412;background:#ffedd5;padding:8px;border-radius:6px;margin:6px 0";
+         item.appendChild(aviso);
+         if (encargos.dias < 30) {
+           const lembrar = document.createElement("button");
+           lembrar.className = "secondary";
+           lembrar.textContent = "Preparar aviso de cobrança (15+ dias)";
+           lembrar.onclick = () => prepararAviso15Dias(cobranca);
+           item.appendChild(lembrar);
+         }
+       }
       if(cobranca.status!=="paid" && cobranca.status!=="cancelled"){
         const botao=document.createElement("button");botao.textContent="Confirmar recebimento";
         botao.onclick=()=>registrarPagamentoPorId(cobranca.id);
@@ -646,6 +659,32 @@ async function carregarPagamentos() {
 }
 
 
+
+// Aviso administrativo de cobrança, sem envio automático.
+async function prepararAviso15Dias(cobranca) {
+  try {
+    const user = await usuarioAdministrador();
+    const calculo = calcularEncargos(cobranca);
+    if (calculo.dias < 15 || !cobranca.lease_id || cobranca.status === "paid" || cobranca.status === "cancelled") {
+      throw new Error("Aviso disponível para aluguel vinculado a contrato com pelo menos 15 dias de atraso.");
+    }
+    const {data: contrato, error: ec} = await db.from("leases")
+      .select("property_id,tenant_id").eq("id",cobranca.lease_id).eq("owner_id",user.id).single();
+    if (ec) throw ec;
+    const [imovel, inquilino] = await Promise.all([
+      db.from("properties").select("name").eq("id",contrato.property_id).eq("owner_id",user.id).single(),
+      db.from("tenants").select("full_name").eq("id",contrato.tenant_id).eq("owner_id",user.id).single()
+    ]);
+    if (imovel.error) throw imovel.error;
+    if (inquilino.error) throw inquilino.error;
+    const mensagem = `AVISO DE COBRANÇA — ${dataBR(hojeISO())}\n\nOlá, ${inquilino.data.full_name}. Consta em aberto o aluguel referente a ${cobranca.description}, do imóvel ${imovel.data.name}, vencido em ${dataBR(cobranca.due_date)} (${calculo.dias} dias de atraso).\n\nValor original: ${reais(calculo.principal)}\nMulta contratual estimada: ${reais(calculo.multa)}\nJuros estimados: ${reais(calculo.juros)}\nTotal estimado: ${reais(calculo.total)}\n\nPedimos que entre em contato para conferir a pendência e combinar a regularização. Os encargos estão sujeitos ao contrato e à legislação aplicável.\n\nAdministração de Bens Flores Crisanto`;
+    const janela = window.open("", "_blank");
+    if (!janela) { alert("Permita janelas pop-up no Safari para visualizar o aviso."); return; }
+    const escapar = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    janela.document.write('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aviso de cobrança</title><style>body{font:16px/1.6 Arial,sans-serif;max-width:780px;margin:40px auto;padding:20px}pre{white-space:pre-wrap;font:inherit}button{padding:10px 20px}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Imprimir / Salvar em PDF</button><pre>'+escapar(mensagem)+'</pre></body></html>');
+    janela.document.close();
+  } catch (e) { alert("Não foi possível preparar o aviso: " + (e.message || e)); }
+}
 
 // Minuta para revisão humana; não envia nem executa despejo automaticamente.
 async function gerarNotificacaoAtraso(cobranca) {
