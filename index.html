@@ -83,6 +83,7 @@ footer{text-align:center;margin:30px;color:#666}
 </section>
 <section class="card" style="grid-column:1/-1"><h2>Anúncios de apartamentos</h2><p>Prepare anúncios de unidades disponíveis, com fotos, valor e contato. Nenhum anúncio é publicado automaticamente.</p><div class="anuncio-form"><label for="anuncioUnidade">Apartamento / unidade</label><input id="anuncioUnidade" placeholder="Ex.: Apartamento 102" maxlength="100"><label for="anuncioValor">Aluguel mensal (R$)</label><input id="anuncioValor" inputmode="decimal" placeholder="Ex.: 1600,00"><label for="anuncioDescricao">Descrição do anúncio</label><textarea id="anuncioDescricao" rows="4" placeholder="Descreva o apartamento e suas características."></textarea><label for="anuncioFotos">Selecionar fotos do apartamento</label><input id="anuncioFotos" type="file" accept="image/*" multiple><div id="galeriaAnuncios" class="galeria-anuncios" aria-live="polite"></div><p class="anuncio-aviso">As fotos selecionadas ficam guardadas somente neste navegador, neste dispositivo. Não são enviadas ao Supabase nem anexadas automaticamente ao WhatsApp ou Facebook. Confira se o imóvel está realmente disponível antes de divulgar.</p><div class="actions"><button onclick="salvarRascunhoAnuncio()">Salvar rascunho</button><button onclick="compartilharAnuncioWhatsapp()">Compartilhar texto no WhatsApp</button><button class="secondary" onclick="copiarTextoAnuncio()">Copiar texto para Facebook</button></div><div id="statusAnuncio" role="status" class="muted"></div></div></section>
 <section class="card" style="grid-column:1/-1"><h2>Regimento do Condomínio</h2><p>Escolha um inquilino por vez para preparar o envio do regimento pelo WhatsApp.</p><button onclick="enviarRegimentoCondominio()">Escolher inquilino e enviar regimento</button><p class="muted" style="font-size:13px">O link do documento é temporário e expira em 1 hora. O WhatsApp abre para você conferir e confirmar o envio; nada é enviado automaticamente.</p></section>
+<section class="card" style="grid-column:1/-1"><h2>Grupo do Condomínio – Residencial 12 Tribos</h2><p>Acesse o grupo de WhatsApp do condomínio após entrar como administrador.</p><button onclick="abrirGrupoCondominio()">Abrir grupo no WhatsApp</button></section>
 </div>
 </main>
 <footer>ADM de Bens Flores Crisanto</footer>
@@ -1334,6 +1335,18 @@ async function enviarRegimentoCondominio(){
   const aba=window.open("https://wa.me/"+telefone+"?text="+encodeURIComponent(mensagem),"_blank","noopener,noreferrer");
   if(!aba)alert("Permita janelas pop-up no Safari e tente novamente. O WhatsApp não enviou a mensagem automaticamente.");
  }catch(e){alert("Não foi possível preparar o regimento: "+(e.message||e));}
+}
+
+// A verificação de login protege o botão, mas não oculta o link no código-fonte.
+async function abrirGrupoCondominio() {
+  try {
+    await usuarioAdministrador();
+    const convite = "https://chat.whatsapp.com/CYYWNcHYgLE8wo51ukJOo1?mode=gi_t";
+    const aba = window.open(convite, "_blank", "noopener,noreferrer");
+    if (!aba) window.location.href = convite;
+  } catch (erro) {
+    alert("Entre como administrador antes de abrir o grupo: " + (erro.message || erro));
+  }
 }
 </script>
 </body>
